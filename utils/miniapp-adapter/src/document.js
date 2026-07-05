@@ -144,8 +144,9 @@ const document = {
         const listeners = events[type]
 
         if (listeners) {
+            // 与 EventTarget.dispatchEvent 一致：this 绑定到 currentTarget（document）
             for (let i = 0; i < listeners.length; i++) {
-                listeners[i](event)
+                listeners[i].call(this, event)
             }
         }
 

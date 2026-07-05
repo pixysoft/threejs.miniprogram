@@ -159,6 +159,24 @@ xhr.addEventListener( 'load', function () { hits ++; } );
 xhr.dispatchEvent( { type: 'load' } );
 assert( 'XHR 同类事件可挂多个监听器', hits === 2 );
 
+// ---- 8b. dispatchEvent 的 this 绑定(DOM 规范: this = currentTarget) ----
+// FileLoader 的 load 回调依赖 this.status/this.response, 裸调用会全部 undefined
+// 导致 status 200 的成功响应被误判为失败走 onError(2026-07 回归)
+
+const xhr2 = new THREE.global.XMLHttpRequest();
+xhr2.status = 200;
+let boundStatus = null;
+xhr2.addEventListener( 'load', function () { boundStatus = this && this.status; } );
+xhr2.dispatchEvent( { type: 'load' } );
+assert( 'XHR addEventListener 回调 this 绑定到 XHR 实例', boundStatus === 200 );
+
+let docThisOk = false;
+const docProbe = function () { docThisOk = this === THREE.global.document; };
+THREE.global.document.addEventListener( 'this-evt', docProbe );
+THREE.global.document.dispatchEvent( { type: 'this-evt' } );
+THREE.global.document.removeEventListener( 'this-evt', docProbe );
+assert( 'document 监听器回调 this 绑定到 document', docThisOk );
+
 // ---- 9. P1 #6: UTF-8 解码回退(无 TextDecoder 时) ----
 
 const savedTextDecoder = global.TextDecoder;

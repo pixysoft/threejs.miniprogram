@@ -49,8 +49,10 @@ export default class EventTarget {
     const listeners = _events.get(this)[event.type]
 
     if (listeners) {
+      // DOM 规范：监听器调用时 this 指向 currentTarget（如 FileLoader 的
+      // load 回调读 this.status/this.response），裸调用会丢失绑定
       for (let i = 0; i < listeners.length; i++) {
-        listeners[i](event)
+        listeners[i].call(this, event)
       }
     }
   }

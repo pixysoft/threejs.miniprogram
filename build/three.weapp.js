@@ -370,8 +370,10 @@
 	      var event = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
 	      var listeners = _events.get(this)[event.type];
 	      if (listeners) {
+	        // DOM 规范：监听器调用时 this 指向 currentTarget（如 FileLoader 的
+	        // load 回调读 this.status/this.response），裸调用会丢失绑定
 	        for (var i = 0; i < listeners.length; i++) {
-	          listeners[i](event);
+	          listeners[i].call(this, event);
 	        }
 	      }
 	    }
@@ -1437,8 +1439,9 @@
 	    var type = event.type;
 	    var listeners = events[type];
 	    if (listeners) {
+	      // 与 EventTarget.dispatchEvent 一致：this 绑定到 currentTarget（document）
 	      for (var i = 0; i < listeners.length; i++) {
-	        listeners[i](event);
+	        listeners[i].call(this, event);
 	      }
 	    }
 	    if (event.target && typeof event.target['on' + type] === 'function') {
