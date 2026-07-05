@@ -176,20 +176,14 @@ Object.assign( Matrix3.prototype, {
 
 	},
 
-	getInverse: function ( matrix, throwOnDegenerate ) {
+	invert: function () {
 
-		if ( matrix && matrix.isMatrix4 ) {
+		// backport from r185: 解析求逆; 退化矩阵(det=0)置零矩阵, 与新版语义一致
+		var te = this.elements,
 
-			console.error( "THREE.Matrix3: .getInverse() no longer takes a Matrix4 argument." );
-
-		}
-
-		var me = matrix.elements,
-			te = this.elements,
-
-			n11 = me[ 0 ], n21 = me[ 1 ], n31 = me[ 2 ],
-			n12 = me[ 3 ], n22 = me[ 4 ], n32 = me[ 5 ],
-			n13 = me[ 6 ], n23 = me[ 7 ], n33 = me[ 8 ],
+			n11 = te[ 0 ], n21 = te[ 1 ], n31 = te[ 2 ],
+			n12 = te[ 3 ], n22 = te[ 4 ], n32 = te[ 5 ],
+			n13 = te[ 6 ], n23 = te[ 7 ], n33 = te[ 8 ],
 
 			t11 = n33 * n22 - n32 * n23,
 			t12 = n32 * n13 - n33 * n12,
@@ -197,23 +191,7 @@ Object.assign( Matrix3.prototype, {
 
 			det = n11 * t11 + n21 * t12 + n31 * t13;
 
-		if ( det === 0 ) {
-
-			var msg = "THREE.Matrix3: .getInverse() can't invert matrix, determinant is 0";
-
-			if ( throwOnDegenerate === true ) {
-
-				throw new Error( msg );
-
-			} else {
-
-				console.warn( msg );
-
-			}
-
-			return this.identity();
-
-		}
+		if ( det === 0 ) return this.set( 0, 0, 0, 0, 0, 0, 0, 0, 0 );
 
 		var detInv = 1 / det;
 
@@ -230,6 +208,13 @@ Object.assign( Matrix3.prototype, {
 		te[ 8 ] = ( n22 * n11 - n21 * n12 ) * detInv;
 
 		return this;
+
+	},
+
+	// 旧 API 别名, 等价于 this.copy( matrix ).invert()
+	getInverse: function ( matrix ) {
+
+		return this.copy( matrix ).invert();
 
 	},
 

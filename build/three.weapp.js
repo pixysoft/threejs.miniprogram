@@ -149,18 +149,28 @@
 	  }
 	}
 
+	// 统一毫秒(P1 #5): wx.getPerformance().now() 真机返回微秒、devtools 返回毫秒,
+	// 旧实现真机除以 1000 后与 devtools 行为不一致, Clock 的 delta 在两端差 1000 倍。
+	// 这里统一封装为「相对启动时刻的毫秒数」, 无 getPerformance 时回退 Date.now。
 	var performance$1;
-	if (wx.getPerformance) {
+	var wxPerf = wx.getPerformance ? wx.getPerformance() : null;
+	if (wxPerf && typeof wxPerf.now === 'function') {
 	  var _wx$getSystemInfoSync = wx.getSystemInfoSync(),
 	    platform = _wx$getSystemInfoSync.platform;
-	  var wxPerf = wx.getPerformance();
+	  var toMs = platform === 'devtools' ? 1 : 1000;
 	  var initTime = wxPerf.now();
-	  var clientPerfAdapter = Object.assign({}, wxPerf, {
+	  performance$1 = {
 	    now: function now() {
-	      return (wxPerf.now() - initTime) / 1000;
+	      return (wxPerf.now() - initTime) / toMs;
 	    }
-	  });
-	  performance$1 = platform === 'devtools' ? wxPerf : clientPerfAdapter;
+	  };
+	} else {
+	  var _initTime = Date.now();
+	  performance$1 = {
+	    now: function now() {
+	      return Date.now() - _initTime;
+	    }
+	  };
 	}
 	var performance$2 = performance$1;
 
@@ -345,7 +355,7 @@
 	      if (events) {
 	        var listeners = events[type];
 	        if (listeners && listeners.length > 0) {
-	          for (var i = listeners.length; i--; i > 0) {
+	          for (var i = listeners.length - 1; i >= 0; i--) {
 	            if (listeners[i] === listener) {
 	              listeners.splice(i, 1);
 	              break;
@@ -380,7 +390,6 @@
 	  return _createClass(Node, [{
 	    key: "appendChild",
 	    value: function appendChild(node) {
-	      this.childNodes.push(node);
 	      if (node instanceof Node) {
 	        this.childNodes.push(node);
 	      } else {
@@ -1174,6 +1183,53 @@
 	  }
 	};
 
+	/**
+	 * WebGL1 运行时能力探测(全库唯一探测点)。
+	 * 后续移植特性(BatchedMesh/GPGPU/后处理精度等)统一消费此能力表做降级,
+	 * 不满足要求时降级(如 BatchedMesh→InstancedMesh→Mesh)而不是报错。
+	 * 结果按 gl 上下文缓存, 同一上下文只探测一次。
+	 */
+	var _cache = typeof WeakMap !== 'undefined' ? new WeakMap() : null;
+
+	// 部分真机声明支持 OES_texture_float 但 float 纹理不可作为渲染目标,
+	// 必须实际创建 FBO 验证
+	function probeFloatRenderable(gl) {
+	  var texture = gl.createTexture();
+	  gl.bindTexture(3553, texture);
+	  gl.texImage2D(3553, 0, 6408, 1, 1, 0, 6408, 5126, null);
+	  var framebuffer = gl.createFramebuffer();
+	  gl.bindFramebuffer(36160, framebuffer);
+	  gl.framebufferTexture2D(36160, 36064, 3553, texture, 0);
+	  var renderable = gl.checkFramebufferStatus(36160) === 36053;
+	  gl.bindFramebuffer(36160, null);
+	  gl.bindTexture(3553, null);
+	  gl.deleteFramebuffer(framebuffer);
+	  gl.deleteTexture(texture);
+	  return renderable;
+	}
+	function detectCapabilities(gl) {
+	  if (!gl || typeof gl.getExtension !== 'function') {
+	    throw new Error('detectCapabilities: need a WebGL rendering context');
+	  }
+	  if (_cache && _cache.has(gl)) {
+	    return _cache.get(gl);
+	  }
+	  var floatTexture = !!gl.getExtension('OES_texture_float');
+	  var capabilities = {
+	    instancing: !!gl.getExtension('ANGLE_instanced_arrays'),
+	    floatTexture: floatTexture,
+	    halfFloatTexture: !!gl.getExtension('OES_texture_half_float'),
+	    floatRenderable: floatTexture && probeFloatRenderable(gl),
+	    sRGB: !!gl.getExtension('EXT_sRGB'),
+	    depthTexture: !!gl.getExtension('WEBGL_depth_texture'),
+	    vertexTextures: gl.getParameter(35660) > 0
+	  };
+	  if (_cache) {
+	    _cache.set(gl, capabilities);
+	  }
+	  return capabilities;
+	}
+
 	function Image() {
 	  var canvas = _canvas;
 	  if (!canvas) {
@@ -1185,6 +1241,24 @@
 
 	  if (!('tagName' in image)) {
 	    image.tagName = 'IMG';
+	  }
+
+	  // createImage() 返回的微信原生对象只有 on* 属性, 而 ImageLoader 走
+	  // addEventListener('load'/'error'), 这里补一层映射(P0 #2)
+	  if (typeof image.addEventListener !== 'function') {
+	    image.addEventListener = function (type, listener) {
+	      var wrapper = function wrapper(event) {
+	        listener.call(image, event);
+	      };
+	      wrapper._listener = listener;
+	      image['on' + type] = wrapper;
+	    };
+	    image.removeEventListener = function (type, listener) {
+	      var current = image['on' + type];
+	      if (current && (current === listener || current._listener === listener)) {
+	        image['on' + type] = null;
+	      }
+	    };
 	  }
 	  parentNode(image);
 	  classList(image);
@@ -1351,7 +1425,7 @@
 	  removeEventListener: function removeEventListener(type, listener) {
 	    var listeners = events[type];
 	    if (listeners && listeners.length > 0) {
-	      for (var i = listeners.length; i--; i > 0) {
+	      for (var i = listeners.length - 1; i >= 0; i--) {
 	        if (listeners[i] === listener) {
 	          listeners.splice(i, 1);
 	          break;
@@ -1428,12 +1502,17 @@
 	var _requestHeader = new WeakMap();
 	var _responseHeader = new WeakMap();
 	var _requestTask = new WeakMap();
+
+	// on* 属性与 addEventListener 双通道合并派发(P1 #4):
+	// addEventListener 的监听器走 EventTarget 原型的数组存储, 不再互相覆盖
 	function _triggerEvent(type) {
 	  var event = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
 	  event.target = event.target || this;
+	  event.type = event.type || type;
 	  if (typeof this["on".concat(type)] === 'function') {
 	    this["on".concat(type)].call(this, event);
 	  }
+	  this.dispatchEvent(event);
 	}
 	function _changeReadyState(readyState) {
 	  var event = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
@@ -1612,26 +1691,6 @@
 	      myHeader[header] = value;
 	      _requestHeader.set(this, myHeader);
 	    }
-	  }, {
-	    key: "addEventListener",
-	    value: function addEventListener(type, listener) {
-	      var _this3 = this;
-	      if (typeof listener !== 'function') {
-	        return;
-	      }
-	      this['on' + type] = function () {
-	        var event = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
-	        event.target = event.target || _this3;
-	        listener.call(_this3, event);
-	      };
-	    }
-	  }, {
-	    key: "removeEventListener",
-	    value: function removeEventListener(type, listener) {
-	      if (this['on' + type] === listener) {
-	        this['on' + type] = null;
-	      }
-	    }
 	  }]);
 	}(EventTarget); // TODO 没法模拟 HEADERS_RECEIVED 和 LOADING 两个状态
 	XMLHttpRequest.UNSEND = 0;
@@ -1742,8 +1801,23 @@
 	// const _clearTimeout = clearTimeout;
 	// const _setInterval = setInterval;
 	// const _clearInterval = clearInterval;
-	var _requestAnimationFrame = _canvas ? _canvas.requestAnimationFrame : noop;
-	var _cancelAnimationFrame = _canvas ? _canvas.cancelAnimationFrame : noop;
+
+	// RAF 必须运行时动态取当前注册的 canvas: 模块求值时 _canvas 必为 null,
+	// 固化到 const 会让 renderer.setAnimationLoop 永远不驱动帧循环(P0 #1)
+	function _requestAnimationFrame(callback) {
+	  if (_canvas && _canvas.requestAnimationFrame) {
+	    return _canvas.requestAnimationFrame(callback);
+	  }
+	  return setTimeout(function () {
+	    callback(Date.now());
+	  }, 16);
+	}
+	function _cancelAnimationFrame(id) {
+	  if (_canvas && _canvas.cancelAnimationFrame) {
+	    return _canvas.cancelAnimationFrame(id);
+	  }
+	  return clearTimeout(id);
+	}
 
 	//TODO
 	var AudioContext = null;
@@ -1784,6 +1858,7 @@
 		arrayBufferToBase64: arrayBufferToBase64,
 		base64ToArrayBuffer: base64ToArrayBuffer,
 		location: location,
+		detectCapabilities: detectCapabilities,
 		document: document,
 		navigator: navigator$1,
 		XMLHttpRequest: XMLHttpRequest,
@@ -4304,20 +4379,14 @@
 
 		},
 
-		getInverse: function ( matrix, throwOnDegenerate ) {
+		invert: function () {
 
-			if ( matrix && matrix.isMatrix4 ) {
+			// backport from r185: 解析求逆; 退化矩阵(det=0)置零矩阵, 与新版语义一致
+			var te = this.elements,
 
-				console.error( "THREE.Matrix3: .getInverse() no longer takes a Matrix4 argument." );
-
-			}
-
-			var me = matrix.elements,
-				te = this.elements,
-
-				n11 = me[ 0 ], n21 = me[ 1 ], n31 = me[ 2 ],
-				n12 = me[ 3 ], n22 = me[ 4 ], n32 = me[ 5 ],
-				n13 = me[ 6 ], n23 = me[ 7 ], n33 = me[ 8 ],
+				n11 = te[ 0 ], n21 = te[ 1 ], n31 = te[ 2 ],
+				n12 = te[ 3 ], n22 = te[ 4 ], n32 = te[ 5 ],
+				n13 = te[ 6 ], n23 = te[ 7 ], n33 = te[ 8 ],
 
 				t11 = n33 * n22 - n32 * n23,
 				t12 = n32 * n13 - n33 * n12,
@@ -4325,23 +4394,7 @@
 
 				det = n11 * t11 + n21 * t12 + n31 * t13;
 
-			if ( det === 0 ) {
-
-				var msg = "THREE.Matrix3: .getInverse() can't invert matrix, determinant is 0";
-
-				if ( throwOnDegenerate === true ) {
-
-					throw new Error( msg );
-
-				} else {
-
-					console.warn( msg );
-
-				}
-
-				return this.identity();
-
-			}
+			if ( det === 0 ) { return this.set( 0, 0, 0, 0, 0, 0, 0, 0, 0 ); }
 
 			var detInv = 1 / det;
 
@@ -4358,6 +4411,13 @@
 			te[ 8 ] = ( n22 * n11 - n21 * n12 ) * detInv;
 
 			return this;
+
+		},
+
+		// 旧 API 别名, 等价于 this.copy( matrix ).invert()
+		getInverse: function ( matrix ) {
+
+			return this.copy( matrix ).invert();
 
 		},
 
@@ -6179,65 +6239,65 @@
 
 		},
 
-		getInverse: function ( m, throwOnDegenerate ) {
+		invert: function () {
 
-			// based on http://www.euclideanspace.com/maths/algebra/matrix/functions/inverse/fourD/index.htm
+			// backport from r185, based on https://github.com/toji/gl-matrix
+			// 解析求逆(子式复用), 比旧版余子式展开更快且数值更稳;
+			// 退化矩阵(det=0)置零矩阵, 与 r185 语义一致
 			var te = this.elements,
-				me = m.elements,
 
-				n11 = me[ 0 ], n21 = me[ 1 ], n31 = me[ 2 ], n41 = me[ 3 ],
-				n12 = me[ 4 ], n22 = me[ 5 ], n32 = me[ 6 ], n42 = me[ 7 ],
-				n13 = me[ 8 ], n23 = me[ 9 ], n33 = me[ 10 ], n43 = me[ 11 ],
-				n14 = me[ 12 ], n24 = me[ 13 ], n34 = me[ 14 ], n44 = me[ 15 ],
+				n11 = te[ 0 ], n21 = te[ 1 ], n31 = te[ 2 ], n41 = te[ 3 ],
+				n12 = te[ 4 ], n22 = te[ 5 ], n32 = te[ 6 ], n42 = te[ 7 ],
+				n13 = te[ 8 ], n23 = te[ 9 ], n33 = te[ 10 ], n43 = te[ 11 ],
+				n14 = te[ 12 ], n24 = te[ 13 ], n34 = te[ 14 ], n44 = te[ 15 ],
 
-				t11 = n23 * n34 * n42 - n24 * n33 * n42 + n24 * n32 * n43 - n22 * n34 * n43 - n23 * n32 * n44 + n22 * n33 * n44,
-				t12 = n14 * n33 * n42 - n13 * n34 * n42 - n14 * n32 * n43 + n12 * n34 * n43 + n13 * n32 * n44 - n12 * n33 * n44,
-				t13 = n13 * n24 * n42 - n14 * n23 * n42 + n14 * n22 * n43 - n12 * n24 * n43 - n13 * n22 * n44 + n12 * n23 * n44,
-				t14 = n14 * n23 * n32 - n13 * n24 * n32 - n14 * n22 * n33 + n12 * n24 * n33 + n13 * n22 * n34 - n12 * n23 * n34;
+				t1 = n11 * n22 - n21 * n12,
+				t2 = n11 * n32 - n31 * n12,
+				t3 = n11 * n42 - n41 * n12,
+				t4 = n21 * n32 - n31 * n22,
+				t5 = n21 * n42 - n41 * n22,
+				t6 = n31 * n42 - n41 * n32,
+				t7 = n13 * n24 - n23 * n14,
+				t8 = n13 * n34 - n33 * n14,
+				t9 = n13 * n44 - n43 * n14,
+				t10 = n23 * n34 - n33 * n24,
+				t11 = n23 * n44 - n43 * n24,
+				t12 = n33 * n44 - n43 * n34;
 
-			var det = n11 * t11 + n21 * t12 + n31 * t13 + n41 * t14;
+			var det = t1 * t12 - t2 * t11 + t3 * t10 + t4 * t9 - t5 * t8 + t6 * t7;
 
-			if ( det === 0 ) {
-
-				var msg = "THREE.Matrix4: .getInverse() can't invert matrix, determinant is 0";
-
-				if ( throwOnDegenerate === true ) {
-
-					throw new Error( msg );
-
-				} else {
-
-					console.warn( msg );
-
-				}
-
-				return this.identity();
-
-			}
+			if ( det === 0 ) { return this.set( 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ); }
 
 			var detInv = 1 / det;
 
-			te[ 0 ] = t11 * detInv;
-			te[ 1 ] = ( n24 * n33 * n41 - n23 * n34 * n41 - n24 * n31 * n43 + n21 * n34 * n43 + n23 * n31 * n44 - n21 * n33 * n44 ) * detInv;
-			te[ 2 ] = ( n22 * n34 * n41 - n24 * n32 * n41 + n24 * n31 * n42 - n21 * n34 * n42 - n22 * n31 * n44 + n21 * n32 * n44 ) * detInv;
-			te[ 3 ] = ( n23 * n32 * n41 - n22 * n33 * n41 - n23 * n31 * n42 + n21 * n33 * n42 + n22 * n31 * n43 - n21 * n32 * n43 ) * detInv;
+			te[ 0 ] = ( n22 * t12 - n32 * t11 + n42 * t10 ) * detInv;
+			te[ 1 ] = ( n31 * t11 - n21 * t12 - n41 * t10 ) * detInv;
+			te[ 2 ] = ( n24 * t6 - n34 * t5 + n44 * t4 ) * detInv;
+			te[ 3 ] = ( n33 * t5 - n23 * t6 - n43 * t4 ) * detInv;
 
-			te[ 4 ] = t12 * detInv;
-			te[ 5 ] = ( n13 * n34 * n41 - n14 * n33 * n41 + n14 * n31 * n43 - n11 * n34 * n43 - n13 * n31 * n44 + n11 * n33 * n44 ) * detInv;
-			te[ 6 ] = ( n14 * n32 * n41 - n12 * n34 * n41 - n14 * n31 * n42 + n11 * n34 * n42 + n12 * n31 * n44 - n11 * n32 * n44 ) * detInv;
-			te[ 7 ] = ( n12 * n33 * n41 - n13 * n32 * n41 + n13 * n31 * n42 - n11 * n33 * n42 - n12 * n31 * n43 + n11 * n32 * n43 ) * detInv;
+			te[ 4 ] = ( n32 * t9 - n12 * t12 - n42 * t8 ) * detInv;
+			te[ 5 ] = ( n11 * t12 - n31 * t9 + n41 * t8 ) * detInv;
+			te[ 6 ] = ( n34 * t3 - n14 * t6 - n44 * t2 ) * detInv;
+			te[ 7 ] = ( n13 * t6 - n33 * t3 + n43 * t2 ) * detInv;
 
-			te[ 8 ] = t13 * detInv;
-			te[ 9 ] = ( n14 * n23 * n41 - n13 * n24 * n41 - n14 * n21 * n43 + n11 * n24 * n43 + n13 * n21 * n44 - n11 * n23 * n44 ) * detInv;
-			te[ 10 ] = ( n12 * n24 * n41 - n14 * n22 * n41 + n14 * n21 * n42 - n11 * n24 * n42 - n12 * n21 * n44 + n11 * n22 * n44 ) * detInv;
-			te[ 11 ] = ( n13 * n22 * n41 - n12 * n23 * n41 - n13 * n21 * n42 + n11 * n23 * n42 + n12 * n21 * n43 - n11 * n22 * n43 ) * detInv;
+			te[ 8 ] = ( n12 * t11 - n22 * t9 + n42 * t7 ) * detInv;
+			te[ 9 ] = ( n21 * t9 - n11 * t11 - n41 * t7 ) * detInv;
+			te[ 10 ] = ( n14 * t5 - n24 * t3 + n44 * t1 ) * detInv;
+			te[ 11 ] = ( n23 * t3 - n13 * t5 - n43 * t1 ) * detInv;
 
-			te[ 12 ] = t14 * detInv;
-			te[ 13 ] = ( n13 * n24 * n31 - n14 * n23 * n31 + n14 * n21 * n33 - n11 * n24 * n33 - n13 * n21 * n34 + n11 * n23 * n34 ) * detInv;
-			te[ 14 ] = ( n14 * n22 * n31 - n12 * n24 * n31 - n14 * n21 * n32 + n11 * n24 * n32 + n12 * n21 * n34 - n11 * n22 * n34 ) * detInv;
-			te[ 15 ] = ( n12 * n23 * n31 - n13 * n22 * n31 + n13 * n21 * n32 - n11 * n23 * n32 - n12 * n21 * n33 + n11 * n22 * n33 ) * detInv;
+			te[ 12 ] = ( n22 * t8 - n12 * t10 - n32 * t7 ) * detInv;
+			te[ 13 ] = ( n11 * t10 - n21 * t8 + n31 * t7 ) * detInv;
+			te[ 14 ] = ( n24 * t2 - n14 * t4 - n34 * t1 ) * detInv;
+			te[ 15 ] = ( n13 * t4 - n23 * t2 + n33 * t1 ) * detInv;
 
 			return this;
+
+		},
+
+		// 旧 API 别名(现网 61 处 import 依赖), 等价于 this.copy( m ).invert()
+		getInverse: function ( m ) {
+
+			return this.copy( m ).invert();
 
 		},
 
@@ -7897,6 +7957,9 @@
 	];
 	var _vector$2 = new Vector3();
 
+	// expandByObject 快速路径的临时盒(函数声明提升, 此处可安全实例化)
+	var _box = new Box3();
+
 	// triangle centered vertices
 
 	var _v0 = new Vector3();
@@ -8030,11 +8093,11 @@
 
 		},
 
-		setFromObject: function ( object ) {
+		setFromObject: function ( object, precise ) {
 
 			this.makeEmpty();
 
-			return this.expandByObject( object );
+			return this.expandByObject( object, precise );
 
 		},
 
@@ -8123,7 +8186,10 @@
 
 		},
 
-		expandByObject: function ( object ) {
+		expandByObject: function ( object, precise ) {
+
+			// backport from r185: 默认走「几何级包围盒 + 世界矩阵」快速路径,
+			// 复杂度从 O(顶点数) 降到 O(对象数); precise=true 保留旧的逐顶点精确扫盒
 
 			var i, l;
 
@@ -8136,34 +8202,51 @@
 
 			if ( geometry !== undefined ) {
 
-				if ( geometry.isGeometry ) {
+				if ( precise === true ) {
 
-					var vertices = geometry.vertices;
+					if ( geometry.isGeometry ) {
 
-					for ( i = 0, l = vertices.length; i < l; i ++ ) {
+						var vertices = geometry.vertices;
 
-						_vector$2.copy( vertices[ i ] );
-						_vector$2.applyMatrix4( object.matrixWorld );
+						for ( i = 0, l = vertices.length; i < l; i ++ ) {
 
-						this.expandByPoint( _vector$2 );
-
-					}
-
-				} else if ( geometry.isBufferGeometry ) {
-
-					var attribute = geometry.attributes.position;
-
-					if ( attribute !== undefined ) {
-
-						for ( i = 0, l = attribute.count; i < l; i ++ ) {
-
-							_vector$2.fromBufferAttribute( attribute, i ).applyMatrix4( object.matrixWorld );
+							_vector$2.copy( vertices[ i ] );
+							_vector$2.applyMatrix4( object.matrixWorld );
 
 							this.expandByPoint( _vector$2 );
 
 						}
 
+					} else if ( geometry.isBufferGeometry ) {
+
+						var attribute = geometry.attributes.position;
+
+						if ( attribute !== undefined ) {
+
+							for ( i = 0, l = attribute.count; i < l; i ++ ) {
+
+								_vector$2.fromBufferAttribute( attribute, i ).applyMatrix4( object.matrixWorld );
+
+								this.expandByPoint( _vector$2 );
+
+							}
+
+						}
+
 					}
+
+				} else {
+
+					if ( geometry.boundingBox === null ) {
+
+						geometry.computeBoundingBox();
+
+					}
+
+					_box.copy( geometry.boundingBox );
+					_box.applyMatrix4( object.matrixWorld );
+
+					this.union( _box );
 
 				}
 
@@ -8175,7 +8258,7 @@
 
 			for ( i = 0, l = children.length; i < l; i ++ ) {
 
-				this.expandByObject( children[ i ] );
+				this.expandByObject( children[ i ], precise );
 
 			}
 
@@ -8463,7 +8546,7 @@
 
 	}
 
-	var _box = new Box3();
+	var _box$1 = new Box3();
 
 	/**
 	 * @author bhouston / http://clara.io
@@ -8498,7 +8581,7 @@
 
 			} else {
 
-				_box.setFromPoints( points ).getCenter( center );
+				_box$1.setFromPoints( points ).getCenter( center );
 
 			}
 
@@ -11600,7 +11683,7 @@
 	var _m1$2 = new Matrix4();
 	var _obj = new Object3D();
 	var _offset = new Vector3();
-	var _box$1 = new Box3();
+	var _box$2 = new Box3();
 	var _boxMorphTargets = new Box3();
 	var _vector$4 = new Vector3();
 
@@ -12151,10 +12234,10 @@
 					for ( var i = 0, il = morphAttributesPosition.length; i < il; i ++ ) {
 
 						var morphAttribute = morphAttributesPosition[ i ];
-						_box$1.setFromBufferAttribute( morphAttribute );
+						_box$2.setFromBufferAttribute( morphAttribute );
 
-						this.boundingBox.expandByPoint( _box$1.min );
-						this.boundingBox.expandByPoint( _box$1.max );
+						this.boundingBox.expandByPoint( _box$2.min );
+						this.boundingBox.expandByPoint( _box$2.max );
 
 					}
 
@@ -12191,7 +12274,7 @@
 
 				var center = this.boundingSphere.center;
 
-				_box$1.setFromBufferAttribute( position );
+				_box$2.setFromBufferAttribute( position );
 
 				// process morph attributes if present
 
@@ -12202,14 +12285,14 @@
 						var morphAttribute = morphAttributesPosition[ i ];
 						_boxMorphTargets.setFromBufferAttribute( morphAttribute );
 
-						_box$1.expandByPoint( _boxMorphTargets.min );
-						_box$1.expandByPoint( _boxMorphTargets.max );
+						_box$2.expandByPoint( _boxMorphTargets.min );
+						_box$2.expandByPoint( _boxMorphTargets.max );
 
 					}
 
 				}
 
-				_box$1.getCenter( center );
+				_box$2.getCenter( center );
 
 				// second, try to find a boundingSphere with a radius smaller than the
 				// boundingSphere of the boundingBox: sqrt(3) smaller in the best case
@@ -41053,29 +41136,44 @@
 
 			}
 
-			// Avoid the String.fromCharCode.apply(null, array) shortcut, which
-			// throws a "maximum call stack size exceeded" error for large arrays.
+			// 纯 JS UTF-8 解码回退: 旧实现 decodeURIComponent( escape( s ) )
+			// 对部分多字节边界出错(#16358), 小程序真机无 TextDecoder 时走此路径
 
 			var s = '';
+			var i = 0, il = array.length;
 
-			for ( var i = 0, il = array.length; i < il; i ++ ) {
+			while ( i < il ) {
 
-				// Implicitly assumes little-endian.
-				s += String.fromCharCode( array[ i ] );
+				var byte1 = array[ i ++ ];
+
+				if ( byte1 < 0x80 ) {
+
+					s += String.fromCharCode( byte1 );
+
+				} else if ( byte1 < 0xE0 ) {
+
+					var byte2 = array[ i ++ ] & 0x3F;
+					s += String.fromCharCode( ( ( byte1 & 0x1F ) << 6 ) | byte2 );
+
+				} else if ( byte1 < 0xF0 ) {
+
+					var byte2 = array[ i ++ ] & 0x3F;
+					var byte3 = array[ i ++ ] & 0x3F;
+					s += String.fromCharCode( ( ( byte1 & 0x0F ) << 12 ) | ( byte2 << 6 ) | byte3 );
+
+				} else {
+
+					var byte2 = array[ i ++ ] & 0x3F;
+					var byte3 = array[ i ++ ] & 0x3F;
+					var byte4 = array[ i ++ ] & 0x3F;
+					var codepoint = ( ( ( byte1 & 0x07 ) << 18 ) | ( byte2 << 12 ) | ( byte3 << 6 ) | byte4 ) - 0x10000;
+					s += String.fromCharCode( 0xD800 + ( codepoint >> 10 ), 0xDC00 + ( codepoint & 0x3FF ) );
+
+				}
 
 			}
 
-			try {
-
-				// merges multi-byte utf-8 characters.
-
-				return decodeURIComponent( escape( s ) );
-
-			} catch ( e ) { // see #16358
-
-				return s;
-
-			}
+			return s;
 
 		},
 
@@ -49004,7 +49102,7 @@
 	 * @author Mugen87 / http://github.com/Mugen87
 	 */
 
-	var _box$2 = new Box3();
+	var _box$3 = new Box3();
 
 	function BoxHelper( object, color ) {
 
@@ -49040,14 +49138,14 @@
 
 		if ( this.object !== undefined ) {
 
-			_box$2.setFromObject( this.object );
+			_box$3.setFromObject( this.object );
 
 		}
 
-		if ( _box$2.isEmpty() ) { return; }
+		if ( _box$3.isEmpty() ) { return; }
 
-		var min = _box$2.min;
-		var max = _box$2.max;
+		var min = _box$3.min;
+		var max = _box$3.max;
 
 		/*
 		  5____4

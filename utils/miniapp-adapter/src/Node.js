@@ -7,7 +7,6 @@ export default class Node extends EventTarget {
   }
 
   appendChild(node) {
-    this.childNodes.push(node)
     if (node instanceof Node) {
       this.childNodes.push(node)
     } else {

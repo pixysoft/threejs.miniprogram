@@ -4,12 +4,17 @@ const _requestHeader = new WeakMap()
 const _responseHeader = new WeakMap()
 const _requestTask = new WeakMap()
 
+// on* 属性与 addEventListener 双通道合并派发(P1 #4):
+// addEventListener 的监听器走 EventTarget 原型的数组存储, 不再互相覆盖
 function _triggerEvent(type, event = {}) {
     event.target = event.target || this
+    event.type = event.type || type
 
     if (typeof this[`on${type}`] === 'function') {
         this[`on${type}`].call(this, event)
     }
+
+    this.dispatchEvent(event)
 }
 
 function _changeReadyState(readyState, event = {}) {
@@ -196,22 +201,6 @@ export default class XMLHttpRequest extends EventTarget {
         _requestHeader.set(this, myHeader)
     }
 
-    addEventListener(type, listener) {
-        if (typeof listener !== 'function') {
-            return;
-        }
-
-        this['on' + type] = (event = {}) => {
-            event.target = event.target || this
-            listener.call(this, event)
-        }
-    }
-
-    removeEventListener(type, listener) {
-        if (this['on' + type] === listener) {
-            this['on' + type] = null;
-        }
-    }
 }
 
 // TODO 没法模拟 HEADERS_RECEIVED 和 LOADING 两个状态

@@ -8,6 +8,7 @@ import getCanvasComputedStyle from './style/CanvasComputedStyle'
 import Event from './Event'
 
 export { default as location } from './location'
+export { default as detectCapabilities } from './capabilities'
 export { default as document } from './document'
 export { default as navigator } from './navigator'
 export { default as XMLHttpRequest } from './XMLHttpRequest'
@@ -132,9 +133,22 @@ function touchEventHandlerFactory(target, type, canvas = null) {
 // const _clearTimeout = clearTimeout;
 // const _setInterval = setInterval;
 // const _clearInterval = clearInterval;
-const _requestAnimationFrame = _canvas ? _canvas.requestAnimationFrame : noop
 
-const _cancelAnimationFrame = _canvas ? _canvas.cancelAnimationFrame : noop
+// RAF 必须运行时动态取当前注册的 canvas: 模块求值时 _canvas 必为 null,
+// 固化到 const 会让 renderer.setAnimationLoop 永远不驱动帧循环(P0 #1)
+function _requestAnimationFrame(callback) {
+    if (_canvas && _canvas.requestAnimationFrame) {
+        return _canvas.requestAnimationFrame(callback)
+    }
+    return setTimeout(function () { callback(Date.now()) }, 16)
+}
+
+function _cancelAnimationFrame(id) {
+    if (_canvas && _canvas.cancelAnimationFrame) {
+        return _canvas.cancelAnimationFrame(id)
+    }
+    return clearTimeout(id)
+}
 
 //TODO
 let AudioContext = null

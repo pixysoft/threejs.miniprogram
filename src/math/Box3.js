@@ -12,6 +12,9 @@ var _points = [
 ];
 var _vector = new Vector3();
 
+// expandByObject 快速路径的临时盒(函数声明提升, 此处可安全实例化)
+var _box = new Box3();
+
 // triangle centered vertices
 
 var _v0 = new Vector3();
@@ -145,11 +148,11 @@ Object.assign( Box3.prototype, {
 
 	},
 
-	setFromObject: function ( object ) {
+	setFromObject: function ( object, precise ) {
 
 		this.makeEmpty();
 
-		return this.expandByObject( object );
+		return this.expandByObject( object, precise );
 
 	},
 
@@ -238,7 +241,10 @@ Object.assign( Box3.prototype, {
 
 	},
 
-	expandByObject: function ( object ) {
+	expandByObject: function ( object, precise ) {
+
+		// backport from r185: 默认走「几何级包围盒 + 世界矩阵」快速路径,
+		// 复杂度从 O(顶点数) 降到 O(对象数); precise=true 保留旧的逐顶点精确扫盒
 
 		var i, l;
 
@@ -251,34 +257,51 @@ Object.assign( Box3.prototype, {
 
 		if ( geometry !== undefined ) {
 
-			if ( geometry.isGeometry ) {
+			if ( precise === true ) {
 
-				var vertices = geometry.vertices;
+				if ( geometry.isGeometry ) {
 
-				for ( i = 0, l = vertices.length; i < l; i ++ ) {
+					var vertices = geometry.vertices;
 
-					_vector.copy( vertices[ i ] );
-					_vector.applyMatrix4( object.matrixWorld );
+					for ( i = 0, l = vertices.length; i < l; i ++ ) {
 
-					this.expandByPoint( _vector );
-
-				}
-
-			} else if ( geometry.isBufferGeometry ) {
-
-				var attribute = geometry.attributes.position;
-
-				if ( attribute !== undefined ) {
-
-					for ( i = 0, l = attribute.count; i < l; i ++ ) {
-
-						_vector.fromBufferAttribute( attribute, i ).applyMatrix4( object.matrixWorld );
+						_vector.copy( vertices[ i ] );
+						_vector.applyMatrix4( object.matrixWorld );
 
 						this.expandByPoint( _vector );
 
 					}
 
+				} else if ( geometry.isBufferGeometry ) {
+
+					var attribute = geometry.attributes.position;
+
+					if ( attribute !== undefined ) {
+
+						for ( i = 0, l = attribute.count; i < l; i ++ ) {
+
+							_vector.fromBufferAttribute( attribute, i ).applyMatrix4( object.matrixWorld );
+
+							this.expandByPoint( _vector );
+
+						}
+
+					}
+
 				}
+
+			} else {
+
+				if ( geometry.boundingBox === null ) {
+
+					geometry.computeBoundingBox();
+
+				}
+
+				_box.copy( geometry.boundingBox );
+				_box.applyMatrix4( object.matrixWorld );
+
+				this.union( _box );
 
 			}
 
@@ -290,7 +313,7 @@ Object.assign( Box3.prototype, {
 
 		for ( i = 0, l = children.length; i < l; i ++ ) {
 
-			this.expandByObject( children[ i ] );
+			this.expandByObject( children[ i ], precise );
 
 		}
 
