@@ -1,0 +1,190 @@
+import * as _window from './window'
+import Event from './Event'
+import HTMLElement from './HTMLElement'
+// import HTMLVideoElement from './HTMLVideoElement'
+import Image from './Image'
+// import Audio from './Audio'
+import { _canvas, _canvasMap } from './Canvas'
+import DocumentElement from './DocumentElement'
+import Body from './Body'
+import './EventIniter/index.js'
+
+const events = {}
+
+const document = {
+    readyState: 'complete',
+    visibilityState: 'visible', // 'visible' , 'hidden'
+    hidden: false,
+    fullscreen: true,
+
+    location: _window.location,
+
+    scripts: [],
+    style: {},
+
+    ontouchstart: null,
+    ontouchmove: null,
+    ontouchend: null,
+    onvisibilitychange: null,
+
+    parentNode: null,
+    parentElement: null,
+    createElement(tagName) {
+        tagName = tagName.toLowerCase();
+        if (tagName === 'canvas') {
+            if (_canvas == null) {
+                throw new Error('please register a canvas')
+            }
+            return _canvas
+        } else if (tagName === 'img') {
+            return new Image()
+        }
+        // else if (tagName === 'audio') {
+        //   return new Audio()
+        // } 
+        // } else if (tagName === 'video') {
+        //   return new HTMLVideoElement()
+        // }
+
+        return new HTMLElement(tagName)
+    },
+
+    createElementNS(nameSpace, tagName) {
+        return this.createElement(tagName);
+    },
+
+    createTextNode(text) {
+        // TODO: Do we need the TextNode Class ???
+        return text;
+    },
+
+    getElementById(id) {
+        if (_canvasMap.has(id)) {
+            return _canvasMap.get(id)
+        }
+        return null
+    },
+
+    getElementsByTagName(tagName) {
+        tagName = tagName.toLowerCase();
+        if (tagName === 'head') {
+            return [document.head]
+        } else if (tagName === 'body') {
+            return [document.body]
+        } else if (tagName === 'canvas') {
+            return [..._canvasMap]
+        }
+        return []
+    },
+
+    getElementsByTagNameNS(nameSpace, tagName) {
+        return this.getElementsByTagName(tagName);
+    },
+
+    getElementsByName(tagName) {
+        if (tagName === 'head') {
+            return [document.head]
+        } else if (tagName === 'body') {
+            return [document.body]
+        } else if (tagName === 'canvas') {
+            return [..._canvasMap]
+        }
+        return []
+    },
+
+    querySelector(query) {
+        if (query === 'head') {
+            return document.head
+        } else if (query === 'body') {
+            return document.body
+        } else if (query === 'canvas') {
+            return _canvas
+        } else {
+            let id = query.slice(1)
+            if (_canvasMap.has(id)) {
+                return _canvasMap.get(id)
+            }
+        }
+        return null
+    },
+
+    querySelectorAll(query) {
+        if (query === 'head') {
+            return [document.head]
+        } else if (query === 'body') {
+            return [document.body]
+        } else if (query === 'canvas') {
+            return [..._canvasMap]
+        }
+        return []
+    },
+
+    addEventListener(type, listener) {
+        if (!events[type]) {
+            events[type] = []
+        }
+        events[type].push(listener)
+    },
+
+    removeEventListener(type, listener) {
+        const listeners = events[type]
+
+        if (listeners && listeners.length > 0) {
+            for (let i = listeners.length; i--; i > 0) {
+                if (listeners[i] === listener) {
+                    listeners.splice(i, 1)
+                    break
+                }
+            }
+        }
+    },
+
+    dispatchEvent(event) {
+        const type = event.type;
+        const listeners = events[type]
+
+        if (listeners) {
+            for (let i = 0; i < listeners.length; i++) {
+                listeners[i](event)
+            }
+        }
+
+        if (event.target && typeof event.target['on' + type] === 'function') {
+            event.target['on' + type](event)
+        }
+    }
+}
+
+document.documentElement = new DocumentElement()
+document.head = new HTMLElement('head')
+document.body = new Body()
+
+function onVisibilityChange(visible) {
+
+    return function () {
+
+        document.visibilityState = visible ? 'visible' : 'hidden';
+
+        const hidden = !visible;
+        if (document.hidden === hidden) {
+            return;
+        }
+        document.hidden = hidden;
+
+        const event = new Event('visibilitychange');
+
+        event.target = document;
+        event.timeStamp = Date.now();
+
+        document.dispatchEvent(event);
+    }
+}
+
+if (wx.onHide) {
+    wx.onHide(onVisibilityChange(false));
+}
+if (wx.onShow) {
+    wx.onShow(onVisibilityChange(true));
+}
+
+export default document

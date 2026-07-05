@@ -2,105 +2,157 @@
 	typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
 	typeof define === 'function' && define.amd ? define(['exports'], factory) :
 	(global = global || self, factory(global.THREE = {}));
-}(this, function (exports) { 'use strict';
+}(this, (function (exports) { 'use strict';
 
 	function noop() {}
 
-	function _classCallCheck(instance, Constructor) {
-	  if (!(instance instanceof Constructor)) {
-	    throw new TypeError("Cannot call a class as a function");
+	function _arrayLikeToArray(r, a) {
+	  (null == a || a > r.length) && (a = r.length);
+	  for (var e = 0, n = Array(a); e < a; e++) n[e] = r[e];
+	  return n;
+	}
+	function _arrayWithoutHoles(r) {
+	  if (Array.isArray(r)) return _arrayLikeToArray(r);
+	}
+	function _assertThisInitialized(e) {
+	  if (void 0 === e) throw new ReferenceError("this hasn't been initialised - super() hasn't been called");
+	  return e;
+	}
+	function _callSuper(t, o, e) {
+	  return o = _getPrototypeOf(o), _possibleConstructorReturn(t, _isNativeReflectConstruct() ? Reflect.construct(o, e || [], _getPrototypeOf(t).constructor) : o.apply(t, e));
+	}
+	function _classCallCheck(a, n) {
+	  if (!(a instanceof n)) throw new TypeError("Cannot call a class as a function");
+	}
+	function _defineProperties(e, r) {
+	  for (var t = 0; t < r.length; t++) {
+	    var o = r[t];
+	    o.enumerable = o.enumerable || !1, o.configurable = !0, "value" in o && (o.writable = !0), Object.defineProperty(e, _toPropertyKey(o.key), o);
 	  }
 	}
-
-	function _defineProperties(target, props) {
-	  for (var i = 0; i < props.length; i++) {
-	    var descriptor = props[i];
-	    descriptor.enumerable = descriptor.enumerable || false;
-	    descriptor.configurable = true;
-	    if ("value" in descriptor) { descriptor.writable = true; }
-	    Object.defineProperty(target, descriptor.key, descriptor);
-	  }
+	function _createClass(e, r, t) {
+	  return r && _defineProperties(e.prototype, r), t && _defineProperties(e, t), Object.defineProperty(e, "prototype", {
+	    writable: !1
+	  }), e;
 	}
-
-	function _createClass(Constructor, protoProps, staticProps) {
-	  if (protoProps) { _defineProperties(Constructor.prototype, protoProps); }
-	  if (staticProps) { _defineProperties(Constructor, staticProps); }
-	  return Constructor;
-	}
-
-	function _inherits(subClass, superClass) {
-	  if (typeof superClass !== "function" && superClass !== null) {
-	    throw new TypeError("Super expression must either be null or a function");
-	  }
-
-	  subClass.prototype = Object.create(superClass && superClass.prototype, {
-	    constructor: {
-	      value: subClass,
-	      writable: true,
-	      configurable: true
+	function _createForOfIteratorHelper(r, e) {
+	  var t = "undefined" != typeof Symbol && r[Symbol.iterator] || r["@@iterator"];
+	  if (!t) {
+	    if (Array.isArray(r) || (t = _unsupportedIterableToArray(r)) || e && r && "number" == typeof r.length) {
+	      t && (r = t);
+	      var n = 0,
+	        F = function () {};
+	      return {
+	        s: F,
+	        n: function () {
+	          return n >= r.length ? {
+	            done: !0
+	          } : {
+	            done: !1,
+	            value: r[n++]
+	          };
+	        },
+	        e: function (r) {
+	          throw r;
+	        },
+	        f: F
+	      };
 	    }
-	  });
-	  if (superClass) { _setPrototypeOf(subClass, superClass); }
-	}
-
-	function _getPrototypeOf(o) {
-	  _getPrototypeOf = Object.setPrototypeOf ? Object.getPrototypeOf : function _getPrototypeOf(o) {
-	    return o.__proto__ || Object.getPrototypeOf(o);
+	    throw new TypeError("Invalid attempt to iterate non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method.");
+	  }
+	  var o,
+	    a = !0,
+	    u = !1;
+	  return {
+	    s: function () {
+	      t = t.call(r);
+	    },
+	    n: function () {
+	      var r = t.next();
+	      return a = r.done, r;
+	    },
+	    e: function (r) {
+	      u = !0, o = r;
+	    },
+	    f: function () {
+	      try {
+	        a || null == t.return || t.return();
+	      } finally {
+	        if (u) throw o;
+	      }
+	    }
 	  };
-	  return _getPrototypeOf(o);
 	}
-
-	function _setPrototypeOf(o, p) {
-	  _setPrototypeOf = Object.setPrototypeOf || function _setPrototypeOf(o, p) {
-	    o.__proto__ = p;
-	    return o;
-	  };
-
-	  return _setPrototypeOf(o, p);
+	function _getPrototypeOf(t) {
+	  return _getPrototypeOf = Object.setPrototypeOf ? Object.getPrototypeOf.bind() : function (t) {
+	    return t.__proto__ || Object.getPrototypeOf(t);
+	  }, _getPrototypeOf(t);
 	}
-
-	function _assertThisInitialized(self) {
-	  if (self === void 0) {
-	    throw new ReferenceError("this hasn't been initialised - super() hasn't been called");
-	  }
-
-	  return self;
+	function _inherits(t, e) {
+	  if ("function" != typeof e && null !== e) throw new TypeError("Super expression must either be null or a function");
+	  t.prototype = Object.create(e && e.prototype, {
+	    constructor: {
+	      value: t,
+	      writable: !0,
+	      configurable: !0
+	    }
+	  }), Object.defineProperty(t, "prototype", {
+	    writable: !1
+	  }), e && _setPrototypeOf(t, e);
 	}
-
-	function _possibleConstructorReturn(self, call) {
-	  if (call && (typeof call === "object" || typeof call === "function")) {
-	    return call;
-	  }
-
-	  return _assertThisInitialized(self);
+	function _isNativeReflectConstruct() {
+	  try {
+	    var t = !Boolean.prototype.valueOf.call(Reflect.construct(Boolean, [], function () {}));
+	  } catch (t) {}
+	  return (_isNativeReflectConstruct = function () {
+	    return !!t;
+	  })();
 	}
-
-	function _toConsumableArray(arr) {
-	  return _arrayWithoutHoles(arr) || _iterableToArray(arr) || _nonIterableSpread();
+	function _iterableToArray(r) {
+	  if ("undefined" != typeof Symbol && null != r[Symbol.iterator] || null != r["@@iterator"]) return Array.from(r);
 	}
-
-	function _arrayWithoutHoles(arr) {
-	  if (Array.isArray(arr)) {
-	    for (var i = 0, arr2 = new Array(arr.length); i < arr.length; i++) { arr2[i] = arr[i]; }
-
-	    return arr2;
-	  }
-	}
-
-	function _iterableToArray(iter) {
-	  if (Symbol.iterator in Object(iter) || Object.prototype.toString.call(iter) === "[object Arguments]") { return Array.from(iter); }
-	}
-
 	function _nonIterableSpread() {
-	  throw new TypeError("Invalid attempt to spread non-iterable instance");
+	  throw new TypeError("Invalid attempt to spread non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method.");
+	}
+	function _possibleConstructorReturn(t, e) {
+	  if (e && ("object" == typeof e || "function" == typeof e)) return e;
+	  if (void 0 !== e) throw new TypeError("Derived constructors may only return object or undefined");
+	  return _assertThisInitialized(t);
+	}
+	function _setPrototypeOf(t, e) {
+	  return _setPrototypeOf = Object.setPrototypeOf ? Object.setPrototypeOf.bind() : function (t, e) {
+	    return t.__proto__ = e, t;
+	  }, _setPrototypeOf(t, e);
+	}
+	function _toConsumableArray(r) {
+	  return _arrayWithoutHoles(r) || _iterableToArray(r) || _unsupportedIterableToArray(r) || _nonIterableSpread();
+	}
+	function _toPrimitive(t, r) {
+	  if ("object" != typeof t || !t) return t;
+	  var e = t[Symbol.toPrimitive];
+	  if (void 0 !== e) {
+	    var i = e.call(t, r || "default");
+	    if ("object" != typeof i) return i;
+	    throw new TypeError("@@toPrimitive must return a primitive value.");
+	  }
+	  return ("string" === r ? String : Number)(t);
+	}
+	function _toPropertyKey(t) {
+	  var i = _toPrimitive(t, "string");
+	  return "symbol" == typeof i ? i : i + "";
+	}
+	function _unsupportedIterableToArray(r, a) {
+	  if (r) {
+	    if ("string" == typeof r) return _arrayLikeToArray(r, a);
+	    var t = {}.toString.call(r).slice(8, -1);
+	    return "Object" === t && r.constructor && (t = r.constructor.name), "Map" === t || "Set" === t ? Array.from(r) : "Arguments" === t || /^(?:Ui|I)nt(?:8|16|32)(?:Clamped)?Array$/.test(t) ? _arrayLikeToArray(r, a) : void 0;
+	  }
 	}
 
 	var performance$1;
-
 	if (wx.getPerformance) {
 	  var _wx$getSystemInfoSync = wx.getSystemInfoSync(),
-	      platform = _wx$getSystemInfoSync.platform;
-
+	    platform = _wx$getSystemInfoSync.platform;
 	  var wxPerf = wx.getPerformance();
 	  var initTime = wxPerf.now();
 	  var clientPerfAdapter = Object.assign({}, wxPerf, {
@@ -110,14 +162,12 @@
 	  });
 	  performance$1 = platform === 'devtools' ? wxPerf : clientPerfAdapter;
 	}
-
-	var performance$1$1 = performance$1;
+	var performance$2 = performance$1;
 
 	var _wx$getSystemInfoSync$1 = wx.getSystemInfoSync(),
-	    screenWidth = _wx$getSystemInfoSync$1.screenWidth,
-	    screenHeight = _wx$getSystemInfoSync$1.screenHeight,
-	    devicePixelRatio = _wx$getSystemInfoSync$1.devicePixelRatio;
-
+	  screenWidth = _wx$getSystemInfoSync$1.screenWidth,
+	  screenHeight = _wx$getSystemInfoSync$1.screenHeight,
+	  devicePixelRatio = _wx$getSystemInfoSync$1.devicePixelRatio;
 	var innerWidth = screenWidth;
 	var innerHeight = screenHeight;
 	var screen = {
@@ -137,7 +187,6 @@
 	function parentNode(obj, level) {
 	  if (!('parentNode' in obj)) {
 	    var _parent;
-
 	    if (level === 0) {
 	      _parent = function _parent() {
 	        // return document
@@ -145,37 +194,33 @@
 	      };
 	    } else if (level === 1) {
 	      _parent = function _parent() {
-	        return document$1.documentElement;
+	        return document.documentElement;
 	      };
 	    } else {
 	      _parent = function _parent() {
-	        return document$1.body;
+	        return document.body;
 	      };
 	    }
-
 	    Object.defineProperty(obj, 'parentNode', {
 	      enumerable: true,
 	      get: _parent
 	    });
 	  }
-
 	  if (!('parentElement' in obj)) {
 	    var _parent2;
-
 	    if (level === 0) {
 	      _parent2 = function _parent2() {
 	        return null;
 	      };
 	    } else if (level === 1) {
 	      _parent2 = function _parent2() {
-	        return document$1.documentElement;
+	        return document.documentElement;
 	      };
 	    } else {
 	      _parent2 = function _parent2() {
-	        return document$1.body;
+	        return document.body;
 	      };
 	    }
-
 	    Object.defineProperty(obj, 'parentElement', {
 	      enumerable: true,
 	      get: _parent2
@@ -198,12 +243,10 @@
 	    obj.clientLeft = 0;
 	    obj.clientTop = 0;
 	  }
-
 	  if (!('clientWidth' in obj)) {
 	    obj.clientWidth = innerWidth;
 	    obj.clientHeight = innerHeight;
 	  }
-
 	  if (!('getBoundingClientRect' in obj)) {
 	    obj.getBoundingClientRect = function () {
 	      var ret = {
@@ -225,7 +268,6 @@
 	    obj.offsetLeft = 0;
 	    obj.offsetTop = 0;
 	  }
-
 	  if (!('offsetWidth' in obj)) {
 	    obj.offsetWidth = innerWidth;
 	    obj.offsetHeight = innerHeight;
@@ -236,7 +278,6 @@
 	    obj.scrollLeft = 0;
 	    obj.scrollTop = 0;
 	  }
-
 	  if (!('scrollWidth' in obj)) {
 	    obj.scrollWidth = innerWidth;
 	    obj.scrollHeight = innerHeight;
@@ -244,7 +285,6 @@
 	}
 	function classList(obj) {
 	  var noop = function noop() {};
-
 	  obj.classList = [];
 	  obj.classList.add = noop;
 	  obj.classList.remove = noop;
@@ -252,73 +292,48 @@
 	  obj.classList.toggle = noop;
 	}
 	function copyProperties(target, source) {
-	  var _iteratorNormalCompletion = true;
-	  var _didIteratorError = false;
-	  var _iteratorError = undefined;
-
+	  var _iterator = _createForOfIteratorHelper(Object.getOwnPropertyNames(source)),
+	    _step;
 	  try {
-	    for (var _iterator = Object.getOwnPropertyNames(source)[Symbol.iterator](), _step; !(_iteratorNormalCompletion = (_step = _iterator.next()).done); _iteratorNormalCompletion = true) {
+	    for (_iterator.s(); !(_step = _iterator.n()).done;) {
 	      var key = _step.value;
-
 	      if (key !== 'constructor' && key !== 'prototype' && key !== 'name') {
 	        var desc = Object.getOwnPropertyDescriptor(source, key);
 	        Object.defineProperty(target, key, desc);
 	      }
 	    }
 	  } catch (err) {
-	    _didIteratorError = true;
-	    _iteratorError = err;
+	    _iterator.e(err);
 	  } finally {
-	    try {
-	      if (!_iteratorNormalCompletion && _iterator["return"] != null) {
-	        _iterator["return"]();
-	      }
-	    } finally {
-	      if (_didIteratorError) {
-	        throw _iteratorError;
-	      }
-	    }
+	    _iterator.f();
 	  }
 	}
 
 	var _events = new WeakMap();
-
-	var EventTarget =
-	/*#__PURE__*/
-	function () {
+	var EventTarget = /*#__PURE__*/function () {
 	  function EventTarget() {
 	    _classCallCheck(this, EventTarget);
-
 	    _events.set(this, {});
 	  }
-
-	  _createClass(EventTarget, [{
+	  return _createClass(EventTarget, [{
 	    key: "addEventListener",
 	    value: function addEventListener(type, listener) {
 	      var options = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : {};
-
 	      var events = _events.get(this);
-
 	      if (!events) {
 	        events = {};
-
 	        _events.set(this, events);
 	      }
-
 	      if (!events[type]) {
 	        events[type] = [];
 	      }
-
 	      events[type].push(listener);
-
 	      if (options.capture) {
 	        console.warn('EventTarget.addEventListener: options.capture is not implemented.');
 	      }
-
 	      if (options.once) {
 	        console.warn('EventTarget.addEventListener: options.once is not implemented.');
 	      }
-
 	      if (options.passive) {
 	        console.warn('EventTarget.addEventListener: options.passive is not implemented.');
 	      }
@@ -326,12 +341,9 @@
 	  }, {
 	    key: "removeEventListener",
 	    value: function removeEventListener(type, listener) {
-
 	      var events = _events.get(this);
-
 	      if (events) {
 	        var listeners = events[type];
-
 	        if (listeners && listeners.length > 0) {
 	          for (var i = listeners.length; i--; i > 0) {
 	            if (listeners[i] === listener) {
@@ -346,9 +358,7 @@
 	    key: "dispatchEvent",
 	    value: function dispatchEvent() {
 	      var event = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
-
 	      var listeners = _events.get(this)[event.type];
-
 	      if (listeners) {
 	        for (var i = 0; i < listeners.length; i++) {
 	          listeners[i](event);
@@ -356,30 +366,21 @@
 	      }
 	    }
 	  }]);
-
-	  return EventTarget;
 	}();
 
-	var Node =
-	/*#__PURE__*/
-	function (_EventTarget) {
-	  _inherits(Node, _EventTarget);
-
+	var Node = /*#__PURE__*/function (_EventTarget) {
 	  function Node() {
 	    var _this;
-
 	    _classCallCheck(this, Node);
-
-	    _this = _possibleConstructorReturn(this, _getPrototypeOf(Node).call(this));
+	    _this = _callSuper(this, Node);
 	    _this.childNodes = [];
 	    return _this;
 	  }
-
-	  _createClass(Node, [{
+	  _inherits(Node, _EventTarget);
+	  return _createClass(Node, [{
 	    key: "appendChild",
 	    value: function appendChild(node) {
 	      this.childNodes.push(node);
-
 	      if (node instanceof Node) {
 	        this.childNodes.push(node);
 	      } else {
@@ -399,35 +400,25 @@
 	      var index = this.childNodes.findIndex(function (child) {
 	        return child === node;
 	      });
-
 	      if (index > -1) {
 	        return this.childNodes.splice(index, 1);
 	      }
-
 	      return null;
 	    }
 	  }]);
-
-	  return Node;
 	}(EventTarget);
 
-	var Element =
-	/*#__PURE__*/
-	function (_Node) {
-	  _inherits(Element, _Node);
-
+	var Element = /*#__PURE__*/function (_Node) {
 	  function Element() {
 	    var _this;
-
 	    _classCallCheck(this, Element);
-
-	    _this = _possibleConstructorReturn(this, _getPrototypeOf(Element).call(this));
+	    _this = _callSuper(this, Element);
 	    _this.className = '';
 	    _this.children = [];
 	    return _this;
 	  }
-
-	  _createClass(Element, [{
+	  _inherits(Element, _Node);
+	  return _createClass(Element, [{
 	    key: "setAttribute",
 	    value: function setAttribute(name, value) {
 	      this[name] = value;
@@ -448,24 +439,15 @@
 	      return this[name];
 	    }
 	  }]);
-
-	  return Element;
 	}(Node);
 
-	var HTMLElement =
-	/*#__PURE__*/
-	function (_Element) {
-	  _inherits(HTMLElement, _Element);
-
+	var HTMLElement = /*#__PURE__*/function (_Element) {
 	  function HTMLElement() {
 	    var _this;
-
 	    var tagName = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : '';
 	    var level = arguments.length > 1 ? arguments[1] : undefined;
-
 	    _classCallCheck(this, HTMLElement);
-
-	    _this = _possibleConstructorReturn(this, _getPrototypeOf(HTMLElement).call(this));
+	    _this = _callSuper(this, HTMLElement);
 	    _this.className = '';
 	    _this.children = [];
 	    _this.focus = noop;
@@ -476,31 +458,27 @@
 	    _this.remove = noop;
 	    _this.innerHTML = '';
 	    _this.tagName = tagName.toUpperCase();
-	    parentNode(_assertThisInitialized(_this), level);
-	    style(_assertThisInitialized(_this));
-	    classList(_assertThisInitialized(_this));
-	    clientRegion(_assertThisInitialized(_this));
-	    offsetRegion(_assertThisInitialized(_this));
-	    scrollRegion(_assertThisInitialized(_this));
+	    parentNode(_this, level);
+	    style(_this);
+	    classList(_this);
+	    clientRegion(_this);
+	    offsetRegion(_this);
+	    scrollRegion(_this);
 	    return _this;
 	  }
-
-	  return HTMLElement;
+	  _inherits(HTMLElement, _Element);
+	  return _createClass(HTMLElement);
 	}(Element);
 
 	// import { HTMLCanvasElement, CanvasRenderingContext2D, WebGLRenderingContext } from './constructor'
 	var _canvas = null; //目前使用的canvas
-
 	var _canvasMap = new Map();
-
 	function registerCanvas() {
 	  var id = null;
 	  var canvas = null;
-
 	  for (var _len = arguments.length, argus = new Array(_len), _key = 0; _key < _len; _key++) {
 	    argus[_key] = arguments[_key];
 	  }
-
 	  if (argus.length === 0) {
 	    throw new Error('need arguments');
 	  } else if (argus.length === 1 && argus[0]._canvasId) {
@@ -510,59 +488,46 @@
 	    id = argus[0];
 	    canvas = argus[1];
 	  }
-
 	  if (!id || !canvas) {
 	    throw new Error('parameter err');
 	  }
-
 	  if (_canvasMap.size >= 5) {
 	    console.warn('canvas map size bigger 5 please remove unused canvas!');
-
 	    var key = _canvasMap.keys().next().value;
-
 	    if (key) {
 	      _canvasMap["delete"](key);
 	    }
 	  }
-
 	  if (_canvasMap.has(id)) {
 	    _canvas = _canvasMap.get(id);
 	  } else {
-	    canvas.type = 'canvas';
 	    var element = new HTMLElement('canvas');
-	    copyProperties(canvas, element); // 拷贝实例属性
-
-	    copyProperties(canvas.constructor.prototype, EventTarget.prototype); // 拷贝EventTarget原型属性
-
-	    copyProperties(canvas.constructor.prototype, HTMLElement.prototype); // 拷贝HTMLElement原型属性
-
+	    if (!canvas.tagName || canvas.tagName.toUpperCase() != 'CANVAS') {
+	      canvas.type = 'canvas';
+	      copyProperties(canvas, element); // 拷贝实例属性
+	      copyProperties(canvas.constructor.prototype, EventTarget.prototype); // 拷贝EventTarget原型属性
+	      copyProperties(canvas.constructor.prototype, HTMLElement.prototype); // 拷贝HTMLElement原型属性
+	    }
 	    _canvasMap.set(id, canvas);
-		console.log('[three.wxapp] register canvas successfully.', id);
-
+	    console.log('[three.wxapp] register canvas successfully.', id);
 	    _canvas = canvas;
 	  }
-
 	  return _canvas;
 	}
-
 	function unregisterCanvas(argu) {
 	  if (!argu) {
 	    throw new Error('need arguments');
 	  }
-
 	  if (typeof argu === 'string') {
 	    return _canvasMap["delete"](argu);
 	  } else if (argu._canvasId) {
 	    return _canvasMap["delete"](argu._canvasId);
 	  }
-
 	  _canvas = null;
 	  return false;
 	}
-
 	function clearCanvas() {
 	  _canvasMap.clear();
-
 	  _canvas = null;
 	}
 
@@ -1189,9 +1154,8 @@
 	  return style;
 	}
 
-	var Event = function Event(type) {
+	var Event = /*#__PURE__*/_createClass(function Event(type) {
 	  _classCallCheck(this, Event);
-
 	  this.cancelBubble = false;
 	  this.cancelable = false;
 	  this.target = null;
@@ -1200,7 +1164,7 @@
 	  this.stopPropagation = noop;
 	  this.type = type;
 	  this.timeStamp = Date.now();
-	};
+	});
 
 	var location = {
 	  href: 'app.js',
@@ -1212,63 +1176,46 @@
 
 	function Image() {
 	  var canvas = _canvas;
-
 	  if (!canvas) {
 	    throw new Error('please register a canvas');
 	  }
+	  var image = canvas.createImage();
 
-	  var image = canvas.createImage(); // image.__proto__.__proto__.__proto__ = new HTMLImageElement();
+	  // image.__proto__.__proto__.__proto__ = new HTMLImageElement();
 
 	  if (!('tagName' in image)) {
 	    image.tagName = 'IMG';
 	  }
-
 	  parentNode(image);
 	  classList(image);
 	  return image;
 	}
 
-	var DocumentElement =
-	/*#__PURE__*/
-	function (_HTMLElement) {
-	  _inherits(DocumentElement, _HTMLElement);
-
+	var DocumentElement = /*#__PURE__*/function (_HTMLElement) {
 	  function DocumentElement() {
 	    _classCallCheck(this, DocumentElement);
-
-	    return _possibleConstructorReturn(this, _getPrototypeOf(DocumentElement).call(this, 'html', 0));
+	    return _callSuper(this, DocumentElement, ['html', 0]);
 	  }
-
-	  return DocumentElement;
+	  _inherits(DocumentElement, _HTMLElement);
+	  return _createClass(DocumentElement);
 	}(HTMLElement);
 
-	var Body =
-	/*#__PURE__*/
-	function (_HTMLElement) {
-	  _inherits(Body, _HTMLElement);
-
+	var Body = /*#__PURE__*/function (_HTMLElement) {
 	  function Body() {
 	    _classCallCheck(this, Body);
-
 	    // 为了性能, 此处不按照标准的DOM层级关系设计
 	    // 将 body 设置为 0级, parent元素为null
-	    return _possibleConstructorReturn(this, _getPrototypeOf(Body).call(this, 'body', 0));
+	    return _callSuper(this, Body, ['body', 0]);
 	  }
-
-	  return Body;
+	  _inherits(Body, _HTMLElement);
+	  return _createClass(Body);
 	}(HTMLElement);
 
-	var TouchEvent =
-	/*#__PURE__*/
-	function (_Event) {
-	  _inherits(TouchEvent, _Event);
-
+	var TouchEvent = /*#__PURE__*/function (_Event) {
 	  function TouchEvent(type) {
 	    var _this;
-
 	    _classCallCheck(this, TouchEvent);
-
-	    _this = _possibleConstructorReturn(this, _getPrototypeOf(TouchEvent).call(this, type));
+	    _this = _callSuper(this, TouchEvent, [type]);
 	    _this.touches = [];
 	    _this.targetTouches = [];
 	    _this.changedTouches = [];
@@ -1276,12 +1223,11 @@
 	    _this.currentTarget = null;
 	    return _this;
 	  }
-
-	  return TouchEvent;
+	  _inherits(TouchEvent, _Event);
+	  return _createClass(TouchEvent);
 	}(Event);
-	var Touch = function Touch(touch) {
+	var Touch = /*#__PURE__*/_createClass(function Touch(touch) {
 	  _classCallCheck(this, Touch);
-
 	  // CanvasTouch{identifier, x, y}
 	  // Touch{identifier, pageX, pageY, clientX, clientY, force}
 	  this.identifier = touch.identifier;
@@ -1292,13 +1238,15 @@
 	  this.clientY = touch.clientY || touch.y;
 	  this.screenX = this.pageX;
 	  this.screenY = this.pageY;
-	}; // wx.onTouchStart(eventHandlerFactory('touchstart'))
+	});
+
+	// wx.onTouchStart(eventHandlerFactory('touchstart'))
 	// wx.onTouchMove(eventHandlerFactory('touchmove'))
 	// wx.onTouchEnd(eventHandlerFactory('touchend'))
 	// wx.onTouchCancel(eventHandlerFactory('touchcancel'))
 
 	var events = {};
-	var document$1 = {
+	var document = {
 	  readyState: 'complete',
 	  visibilityState: 'visible',
 	  // 'visible' , 'hidden'
@@ -1315,22 +1263,20 @@
 	  parentElement: null,
 	  createElement: function createElement(tagName) {
 	    tagName = tagName.toLowerCase();
-
 	    if (tagName === 'canvas') {
 	      if (_canvas == null) {
 	        throw new Error('please register a canvas');
 	      }
-
 	      return _canvas;
 	    } else if (tagName === 'img') {
 	      return new Image();
-	    } // else if (tagName === 'audio') {
+	    }
+	    // else if (tagName === 'audio') {
 	    //   return new Audio()
 	    // } 
 	    // } else if (tagName === 'video') {
 	    //   return new HTMLVideoElement()
 	    // }
-
 
 	    return new HTMLElement(tagName);
 	  },
@@ -1345,20 +1291,17 @@
 	    if (_canvasMap.has(id)) {
 	      return _canvasMap.get(id);
 	    }
-
 	    return null;
 	  },
 	  getElementsByTagName: function getElementsByTagName(tagName) {
 	    tagName = tagName.toLowerCase();
-
 	    if (tagName === 'head') {
-	      return [document$1.head];
+	      return [document.head];
 	    } else if (tagName === 'body') {
-	      return [document$1.body];
+	      return [document.body];
 	    } else if (tagName === 'canvas') {
 	      return _toConsumableArray(_canvasMap);
 	    }
-
 	    return [];
 	  },
 	  getElementsByTagNameNS: function getElementsByTagNameNS(nameSpace, tagName) {
@@ -1366,53 +1309,47 @@
 	  },
 	  getElementsByName: function getElementsByName(tagName) {
 	    if (tagName === 'head') {
-	      return [document$1.head];
+	      return [document.head];
 	    } else if (tagName === 'body') {
-	      return [document$1.body];
+	      return [document.body];
 	    } else if (tagName === 'canvas') {
 	      return _toConsumableArray(_canvasMap);
 	    }
-
 	    return [];
 	  },
 	  querySelector: function querySelector(query) {
 	    if (query === 'head') {
-	      return document$1.head;
+	      return document.head;
 	    } else if (query === 'body') {
-	      return document$1.body;
+	      return document.body;
 	    } else if (query === 'canvas') {
 	      return _canvas;
 	    } else {
 	      var id = query.slice(1);
-
 	      if (_canvasMap.has(id)) {
 	        return _canvasMap.get(id);
 	      }
 	    }
-
 	    return null;
 	  },
 	  querySelectorAll: function querySelectorAll(query) {
 	    if (query === 'head') {
-	      return [document$1.head];
+	      return [document.head];
 	    } else if (query === 'body') {
-	      return [document$1.body];
+	      return [document.body];
 	    } else if (query === 'canvas') {
 	      return _toConsumableArray(_canvasMap);
 	    }
-
 	    return [];
 	  },
 	  addEventListener: function addEventListener(type, listener) {
 	    if (!events[type]) {
 	      events[type] = [];
 	    }
-
 	    events[type].push(listener);
 	  },
 	  removeEventListener: function removeEventListener(type, listener) {
 	    var listeners = events[type];
-
 	    if (listeners && listeners.length > 0) {
 	      for (var i = listeners.length; i--; i > 0) {
 	        if (listeners[i] === listener) {
@@ -1425,47 +1362,41 @@
 	  dispatchEvent: function dispatchEvent(event) {
 	    var type = event.type;
 	    var listeners = events[type];
-
 	    if (listeners) {
 	      for (var i = 0; i < listeners.length; i++) {
 	        listeners[i](event);
 	      }
 	    }
-
 	    if (event.target && typeof event.target['on' + type] === 'function') {
 	      event.target['on' + type](event);
 	    }
 	  }
 	};
-	document$1.documentElement = new DocumentElement();
-	document$1.head = new HTMLElement('head');
-	document$1.body = new Body();
-
+	document.documentElement = new DocumentElement();
+	document.head = new HTMLElement('head');
+	document.body = new Body();
 	function onVisibilityChange(visible) {
 	  return function () {
-	    document$1.visibilityState = visible ? 'visible' : 'hidden';
+	    document.visibilityState = visible ? 'visible' : 'hidden';
 	    var hidden = !visible;
-
-	    if (document$1.hidden === hidden) {
+	    if (document.hidden === hidden) {
 	      return;
 	    }
-
-	    document$1.hidden = hidden;
+	    document.hidden = hidden;
 	    var event = new Event('visibilitychange');
-	    event.target = document$1;
+	    event.target = document;
 	    event.timeStamp = Date.now();
-	    document$1.dispatchEvent(event);
+	    document.dispatchEvent(event);
 	  };
 	}
-
 	if (wx.onHide) {
 	  wx.onHide(onVisibilityChange(false));
 	}
-
 	if (wx.onShow) {
 	  wx.onShow(onVisibilityChange(true));
 	}
 
+	// TODO 需要 wx.getSystemInfo 获取更详细信息
 	var systemInfo = wx.getSystemInfoSync();
 	var system = systemInfo.system;
 	var platform$1 = systemInfo.platform;
@@ -1480,6 +1411,7 @@
 	  userAgent: ua,
 	  onLine: true,
 	  // TODO 用 wx.getNetworkStateChange 和 wx.onNetworkStateChange 来返回真实的状态
+
 	  // TODO 用 wx.getLocation 来封装 geolocation
 	  geolocation: {
 	    getCurrentPosition: noop,
@@ -1487,7 +1419,6 @@
 	    clearWatch: noop
 	  }
 	};
-
 	if (wx.onNetworkStatusChange) {
 	  wx.onNetworkStatusChange(function (event) {
 	    navigator$1.onLine = event.isConnected;
@@ -1495,47 +1426,33 @@
 	}
 
 	var _requestHeader = new WeakMap();
-
 	var _responseHeader = new WeakMap();
-
 	var _requestTask = new WeakMap();
-
 	function _triggerEvent(type) {
 	  var event = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
 	  event.target = event.target || this;
-
 	  if (typeof this["on".concat(type)] === 'function') {
 	    this["on".concat(type)].call(this, event);
 	  }
 	}
-
 	function _changeReadyState(readyState) {
 	  var event = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
 	  this.readyState = readyState;
 	  event.readyState = readyState;
-
 	  _triggerEvent.call(this, 'readystatechange', event);
 	}
-
 	function _isRelativePath(url) {
 	  return !/^(http|https|ftp|wxfile):\/\/.*/i.test(url);
 	}
-
-	var XMLHttpRequest =
-	/*#__PURE__*/
-	function (_EventTarget) {
-	  _inherits(XMLHttpRequest, _EventTarget);
-
+	var XMLHttpRequest = /*#__PURE__*/function (_EventTarget) {
 	  function XMLHttpRequest() {
 	    var _this;
-
 	    _classCallCheck(this, XMLHttpRequest);
+	    _this = _callSuper(this, XMLHttpRequest);
 
-	    _this = _possibleConstructorReturn(this, _getPrototypeOf(XMLHttpRequest).call(this));
 	    /*
 	     * TODO 这一批事件应该是在 XMLHttpRequestEventTarget.prototype 上面的
 	     */
-
 	    _this.onabort = null;
 	    _this.onerror = null;
 	    _this.onload = null;
@@ -1554,21 +1471,17 @@
 	    _this.statusText = '';
 	    _this.upload = {};
 	    _this.withCredentials = false;
-
-	    _requestHeader.set(_assertThisInitialized(_this), {
+	    _requestHeader.set(_this, {
 	      'content-type': 'application/x-www-form-urlencoded'
 	    });
-
-	    _responseHeader.set(_assertThisInitialized(_this), {});
-
+	    _responseHeader.set(_this, {});
 	    return _this;
 	  }
-
-	  _createClass(XMLHttpRequest, [{
+	  _inherits(XMLHttpRequest, _EventTarget);
+	  return _createClass(XMLHttpRequest, [{
 	    key: "abort",
 	    value: function abort() {
 	      var myRequestTask = _requestTask.get(this);
-
 	      if (myRequestTask) {
 	        myRequestTask.abort();
 	      }
@@ -1577,7 +1490,6 @@
 	    key: "getAllResponseHeaders",
 	    value: function getAllResponseHeaders() {
 	      var responseHeader = _responseHeader.get(this);
-
 	      return Object.keys(responseHeader).map(function (header) {
 	        return "".concat(header, ": ").concat(responseHeader[header]);
 	      }).join('\n');
@@ -1589,12 +1501,9 @@
 	    }
 	  }, {
 	    key: "open",
-	    value: function open(method, url
-	    /* async, user, password 这几个参数在小程序内不支持*/
-	    ) {
+	    value: function open(method, url /* async, user, password 这几个参数在小程序内不支持*/) {
 	      this._method = method;
 	      this._url = url;
-
 	      _changeReadyState.call(this, XMLHttpRequest.OPENED);
 	    }
 	  }, {
@@ -1604,36 +1513,26 @@
 	    key: "send",
 	    value: function send() {
 	      var _this2 = this;
-
 	      var data = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : '';
-
 	      if (this.readyState !== XMLHttpRequest.OPENED) {
 	        throw new Error("Failed to execute 'send' on 'XMLHttpRequest': The object's state must be OPENED.");
 	      } else {
 	        var url = this._url;
-
 	        var header = _requestHeader.get(this);
-
 	        var responseType = this.responseType;
 	        var dataType = this.dataType;
-
 	        var relative = _isRelativePath(url);
-
 	        var encoding;
-
 	        if (responseType === 'arraybuffer') ; else {
 	          encoding = 'utf8';
 	        }
-
 	        delete this.response;
 	        this.response = null;
-
 	        var onSuccess = function onSuccess(_ref) {
 	          var data = _ref.data,
-	              statusCode = _ref.statusCode,
-	              header = _ref.header;
+	            statusCode = _ref.statusCode,
+	            header = _ref.header;
 	          statusCode = statusCode === undefined ? 200 : statusCode;
-
 	          if (typeof data !== 'string' && !(data instanceof ArrayBuffer)) {
 	            try {
 	              data = JSON.stringify(data);
@@ -1641,21 +1540,14 @@
 	              data = data;
 	            }
 	          }
-
 	          _this2.status = statusCode;
-
 	          if (header) {
 	            _responseHeader.set(_this2, header);
 	          }
-
 	          _triggerEvent.call(_this2, 'loadstart');
-
 	          _changeReadyState.call(_this2, XMLHttpRequest.HEADERS_RECEIVED);
-
 	          _changeReadyState.call(_this2, XMLHttpRequest.LOADING);
-
 	          _this2.response = data;
-
 	          if (data instanceof ArrayBuffer) {
 	            Object.defineProperty(_this2, 'responseText', {
 	              enumerable: true,
@@ -1667,18 +1559,14 @@
 	          } else {
 	            _this2.responseText = data;
 	          }
-
 	          _changeReadyState.call(_this2, XMLHttpRequest.DONE);
-
 	          _triggerEvent.call(_this2, 'load');
-
 	          _triggerEvent.call(_this2, 'loadend');
 	        };
-
 	        var onFail = function onFail(_ref2) {
 	          var errMsg = _ref2.errMsg;
-
 	          // TODO 规范错误
+
 	          if (errMsg.indexOf('abort') !== -1) {
 	            _triggerEvent.call(_this2, 'abort');
 	          } else {
@@ -1686,15 +1574,12 @@
 	              message: errMsg
 	            });
 	          }
-
 	          _triggerEvent.call(_this2, 'loadend');
-
 	          if (relative) {
 	            // 用户即使没监听error事件, 也给出相应的警告
 	            console.warn(errMsg);
 	          }
 	        };
-
 	        if (relative) {
 	          var fs = wx.getFileSystemManager();
 	          var options = {
@@ -1702,15 +1587,12 @@
 	            'success': onSuccess,
 	            'fail': onFail
 	          };
-
 	          if (encoding) {
 	            options['encoding'] = encoding;
 	          }
-
 	          fs.readFile(options);
 	          return;
 	        }
-
 	        wx.request({
 	          data: data,
 	          url: url,
@@ -1727,20 +1609,16 @@
 	    key: "setRequestHeader",
 	    value: function setRequestHeader(header, value) {
 	      var myHeader = _requestHeader.get(this);
-
 	      myHeader[header] = value;
-
 	      _requestHeader.set(this, myHeader);
 	    }
 	  }, {
 	    key: "addEventListener",
 	    value: function addEventListener(type, listener) {
 	      var _this3 = this;
-
 	      if (typeof listener !== 'function') {
 	        return;
 	      }
-
 	      this['on' + type] = function () {
 	        var event = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
 	        event.target = event.target || _this3;
@@ -1755,8 +1633,6 @@
 	      }
 	    }
 	  }]);
-
-	  return XMLHttpRequest;
 	}(EventTarget); // TODO 没法模拟 HEADERS_RECEIVED 和 LOADING 两个状态
 	XMLHttpRequest.UNSEND = 0;
 	XMLHttpRequest.OPENED = 1;
@@ -1765,7 +1641,9 @@
 	XMLHttpRequest.DONE = 4;
 
 	var _wx$getSystemInfoSync$2 = wx.getSystemInfoSync(),
-	    platform$2 = _wx$getSystemInfoSync$2.platform; // export { default as HTMLImageElement } from './HTMLImageElement'
+	  platform$2 = _wx$getSystemInfoSync$2.platform;
+
+	// export { btoa, atob } from './Base64.js'
 	// export { default as localStorage } from './localStorage'
 	// export { default as Symbol } from './Symbol'
 	// export { default as WebSocket } from './WebSocket'
@@ -1776,72 +1654,62 @@
 	// export { default as HTMLMediaElement } from './HTMLMediaElement'
 	// export { default as HTMLAudioElement } from './HTMLAudioElement'
 	// export { default as HTMLVideoElement } from './HTMLVideoElement'
-	//helpers
 
+	//helpers
 	function getComputedStyle(dom) {
 	  var tagName = dom.tagName;
-
 	  if (tagName === "CANVAS") {
 	    return getCanvasComputedStyle(dom);
 	  } else if (tagName === "IMG") {
 	    return getImageComputedStyle(dom);
 	  }
-
 	  return style$1;
 	}
-
-	function scrollTo(x, y) {// x = Math.min(window.innerWidth, Math.max(0, x));
+	function scrollTo(x, y) {
+	  // x = Math.min(window.innerWidth, Math.max(0, x));
 	  // y = Math.min(window.innerHeight, Math.max(0, y));
 	  // We can't scroll the page of WeChatTinyGame, so it'll always be 0.
+
 	  // window.scrollX = 0;
 	  // window.scrollY = 0;
 	}
-
-	function scrollBy(dx, dy) {// window.scrollTo(window.scrollX + dx, window.scrollY + dy);
+	function scrollBy(dx, dy) {
+	  // window.scrollTo(window.scrollX + dx, window.scrollY + dy);
 	}
-
 	function alert(msg) {
 	  console.log(msg);
 	}
-
 	function focus() {}
-
 	function blur() {}
-
 	if (platform$2 !== 'devtools') {
 	  var wxPerf$1 = wx.getPerformance ? wx.getPerformance() : Date;
 	  var consoleTimers = {};
-
 	  console.time = function (name) {
 	    consoleTimers[name] = wxPerf$1.now();
 	  };
-
 	  console.timeEnd = function (name) {
 	    var timeStart = consoleTimers[name];
-
 	    if (!timeStart) {
 	      return;
 	    }
-
 	    var timeElapsed = wxPerf$1.now() - timeStart;
 	    console.log(name + ": " + timeElapsed / 1000 + "ms");
 	    delete consoleTimers[name];
 	  };
 	}
-
 	if (wx.onWindowResize) {
 	  wx.onWindowResize(function (res) {
 	    var event = new Event('resize');
-	    event.target = document$1;
+	    event.target = document;
 	    event.timeStamp = Date.now();
 	    event.res = res;
 	    event.windowWidth = res.windowWidth;
 	    event.windowHeight = res.windowHeight;
-	    document$1.dispatchEvent(event);
+	    document.dispatchEvent(event);
 	  });
 	}
-
-	function touchEventHandlerFactory(target, type, canvas = null) {
+	function touchEventHandlerFactory(target, type) {
+	  var canvas = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : null;
 	  return function (rawEvent) {
 	    var event = new TouchEvent(type);
 	    event.changedTouches = rawEvent.changedTouches.map(function (touch) {
@@ -1854,87 +1722,84 @@
 	      return new Touch(touch);
 	    }));
 	    event.timeStamp = rawEvent.timeStamp;
-
 	    if (target == 'document') {
-	      event.target = document$1;
-	      event.currentTarget = document$1;
-	      document$1.dispatchEvent(event);
+	      event.target = document;
+	      event.currentTarget = document;
+	      document.dispatchEvent(event);
 	    } else {
 	      event.target = _canvas;
 	      event.currentTarget = _canvas;
-
-		  if (canvas) 
-			canvas.dispatchEvent(event);
-		  else
-	      	_canvas.dispatchEvent(event);
+	      if (canvas) {
+	        canvas.dispatchEvent(event);
+	      } else {
+	        _canvas.dispatchEvent(event);
+	      }
 	    }
 	  };
-	} // const _setTimeout = setTimeout;
+	}
+
+	// const _setTimeout = setTimeout;
 	// const _clearTimeout = clearTimeout;
 	// const _setInterval = setInterval;
 	// const _clearInterval = clearInterval;
-
-
 	var _requestAnimationFrame = _canvas ? _canvas.requestAnimationFrame : noop;
+	var _cancelAnimationFrame = _canvas ? _canvas.cancelAnimationFrame : noop;
 
-	var _cancelAnimationFrame = _canvas ? _canvas.cancelAnimationFrame : noop; //TODO
-
-
+	//TODO
 	var AudioContext = null;
 	var webkitAudioContext = null;
-
 	function addEventListener(type, listener) {
-	  document$1.addEventListener(type, listener);
+	  document.addEventListener(type, listener);
 	}
-
 	function removeEventListener(type, listener) {
-	  document$1.removeEventListener(type, listener);
+	  document.removeEventListener(type, listener);
 	}
-
 	var arrayBufferToBase64 = wx.arrayBufferToBase64 || noop;
 	var base64ToArrayBuffer = wx.base64ToArrayBuffer || noop;
 
+
+
 	var window = /*#__PURE__*/Object.freeze({
 		__proto__: null,
-		AudioContext: AudioContext,
-		Element: Element,
-		HTMLElement: HTMLElement,
-		Image: Image,
-		TouchEvent: TouchEvent,
-		VRFrameData: noop,
-		XMLHttpRequest: XMLHttpRequest,
+		get canvas () { return _canvas; },
 		_canvasMap: _canvasMap,
+		registerCanvas: registerCanvas,
+		unregisterCanvas: unregisterCanvas,
+		clearCanvas: clearCanvas,
+		AudioContext: AudioContext,
+		webkitAudioContext: webkitAudioContext,
+		VRFrameData: noop,
 		addEventListener: addEventListener,
+		removeEventListener: removeEventListener,
 		alert: alert,
+		focus: focus,
+		blur: blur,
+		getComputedStyle: getComputedStyle,
+		scrollTo: scrollTo,
+		scrollBy: scrollBy,
+		touchEventHandlerFactory: touchEventHandlerFactory,
+		TouchEvent: TouchEvent,
+		requestAnimationFrame: _requestAnimationFrame,
+		cancelAnimationFrame: _cancelAnimationFrame,
 		arrayBufferToBase64: arrayBufferToBase64,
 		base64ToArrayBuffer: base64ToArrayBuffer,
-		blur: blur,
-		cancelAnimationFrame: _cancelAnimationFrame,
-		get canvas () { return _canvas; },
-		clearCanvas: clearCanvas,
-		devicePixelRatio: devicePixelRatio,
-		document: document$1,
-		focus: focus,
-		getComputedStyle: getComputedStyle,
-		innerHeight: innerHeight,
-		innerWidth: innerWidth,
 		location: location,
+		document: document,
 		navigator: navigator$1,
-		ontouchend: ontouchend,
-		ontouchmove: ontouchmove,
-		ontouchstart: ontouchstart,
-		performance: performance$1$1,
-		registerCanvas: registerCanvas,
-		removeEventListener: removeEventListener,
-		requestAnimationFrame: _requestAnimationFrame,
+		XMLHttpRequest: XMLHttpRequest,
+		Image: Image,
+		Element: Element,
+		HTMLElement: HTMLElement,
+		innerWidth: innerWidth,
+		innerHeight: innerHeight,
+		devicePixelRatio: devicePixelRatio,
 		screen: screen,
-		scrollBy: scrollBy,
-		scrollTo: scrollTo,
 		scrollX: scrollX,
 		scrollY: scrollY,
-		touchEventHandlerFactory: touchEventHandlerFactory,
-		unregisterCanvas: unregisterCanvas,
-		webkitAudioContext: webkitAudioContext
+		ontouchstart: ontouchstart,
+		ontouchmove: ontouchmove,
+		ontouchend: ontouchend,
+		performance: performance$2
 	});
 
 	// Polyfills
@@ -4667,7 +4532,7 @@
 
 			} else {
 
-				if ( _canvas$1 === undefined ) { _canvas$1 = document$1.createElementNS( 'http://www.w3.org/1999/xhtml', 'canvas' ); }
+				if ( _canvas$1 === undefined ) { _canvas$1 = document.createElementNS( 'http://www.w3.org/1999/xhtml', 'canvas' ); }
 
 				_canvas$1.width = image.width;
 				_canvas$1.height = image.height;
@@ -22871,7 +22736,7 @@
 
 			return useOffscreenCanvas ?
 				new OffscreenCanvas( width, height ) :
-				document$1.createElementNS( 'http://www.w3.org/1999/xhtml', 'canvas' );
+				document.createElementNS( 'http://www.w3.org/1999/xhtml', 'canvas' );
 
 		}
 
@@ -25396,7 +25261,7 @@
 
 		parameters = parameters || {};
 
-		var _canvas = parameters.canvas !== undefined ? parameters.canvas : document$1.createElementNS( 'http://www.w3.org/1999/xhtml', 'canvas' ),
+		var _canvas = parameters.canvas !== undefined ? parameters.canvas : document.createElementNS( 'http://www.w3.org/1999/xhtml', 'canvas' ),
 			_context = parameters.context !== undefined ? parameters.context : null,
 
 			_alpha = parameters.alpha !== undefined ? parameters.alpha : false,
@@ -38011,7 +37876,7 @@
 
 			}
 
-			var image = document$1.createElementNS( 'http://www.w3.org/1999/xhtml', 'img' );
+			var image = document.createElementNS( 'http://www.w3.org/1999/xhtml', 'img' );
 
 			function onImageLoad() {
 
@@ -51962,4 +51827,4 @@
 
 	Object.defineProperty(exports, '__esModule', { value: true });
 
-}));
+})));
