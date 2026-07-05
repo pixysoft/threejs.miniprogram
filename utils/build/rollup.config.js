@@ -1,6 +1,45 @@
+import path from 'path';
+import babel from 'rollup-plugin-babel';
 import buble from 'rollup-plugin-buble';
 import inject from 'rollup-plugin-inject';
 import resolve from 'rollup-plugin-node-resolve';
+
+// 本地内嵌的小程序适配层, 源码在 utils/miniapp-adapter/src, 打包时直接从源码编译。
+// 注意: inject 必须使用模块名 'miniapp-adapter' 而非文件路径, 这样 inject 才会把
+// adapter 自身代码里的裸 document 也替换为其内部实现(与历史构建产物保持一致)
+const miniappAdapterSrc = path.resolve(__dirname, '../miniapp-adapter/src/index.js');
+const miniappAdapterGlob = 'utils/miniapp-adapter/src/**';
+
+function localMiniappAdapter() {
+
+	return {
+
+		resolveId( id ) {
+
+			if ( id === 'miniapp-adapter' ) return miniappAdapterSrc;
+			return null;
+
+		}
+
+	};
+
+}
+
+// adapter 源码使用了类字段等 buble 不支持的语法, 因此单独用 Babel 编译,
+// three.js 本体仍走 buble, 两者在同一条 rollup 流水线中合并输出
+function miniappAdapterBabel() {
+
+	return babel( {
+		include: miniappAdapterGlob,
+		babelrc: false,
+		presets: [ [ '@babel/preset-env', { modules: false } ] ],
+		plugins: [
+			'@babel/plugin-proposal-class-properties',
+			'@babel/plugin-proposal-export-default-from'
+		]
+	} );
+
+}
 
 function glconstants() {
 
@@ -238,7 +277,9 @@ export default [
 		plugins: [
 			glconstants(),
 			glsl(),
+			miniappAdapterBabel(),
 			buble({
+				exclude: miniappAdapterGlob,
 				transforms: {
 					arrow: false,
 					classes: true
@@ -249,6 +290,7 @@ export default [
 				window: ['miniapp-adapter', '*'],
 				XMLHttpRequest: ['miniapp-adapter', 'XMLHttpRequest'],
 			}),
+			localMiniappAdapter(),
 			resolve()
 		],
 		output: [

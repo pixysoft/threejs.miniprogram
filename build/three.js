@@ -2,7 +2,7 @@
 	typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
 	typeof define === 'function' && define.amd ? define(['exports'], factory) :
 	(global = global || self, factory(global.THREE = {}));
-}(this, function (exports) { 'use strict';
+}(this, (function (exports) { 'use strict';
 
 	// Polyfills
 
@@ -23624,11 +23624,11 @@
 			_canvas.addEventListener( 'webglcontextlost', onContextLost, false );
 			_canvas.addEventListener( 'webglcontextrestored', onContextRestore, false );
 
-			_gl = _context || _canvas.getContext( 'webgl', contextAttributes ) || _canvas.getContext( 'experimental-webgl', contextAttributes );
+			_gl = _context || _canvas.getContext( 'webgl', contextAttributes ) || _canvas.getContext( 'webgl2', contextAttributes ) || _canvas.getContext( 'experimental-webgl', contextAttributes );
 
 			if ( _gl === null ) {
 
-				if ( _canvas.getContext( 'webgl' ) !== null ) {
+				if ( _canvas.getContext( 'webgl' ) !== null  || _canvas.getContext( ' webgl2') !== null ) {
 
 					throw new Error( 'Error creating WebGL context with your selected attributes.' );
 
@@ -50045,4 +50045,4 @@
 
 	Object.defineProperty(exports, '__esModule', { value: true });
 
-}));
+})));
