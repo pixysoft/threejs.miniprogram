@@ -434,13 +434,20 @@ function WebGLProgram( renderer, extensions, cacheKey, material, shader, paramet
 
 		prefixVertex = [
 
+			// backport from r185(阶段三 4.2#2): gl_DrawID 需在着色器内启用扩展
+			// (#extension 必须先于任何非预处理语句)
+			parameters.extensionMultiDraw ? '#extension GL_ANGLE_multi_draw : require' : '',
+
 			generatePrecision( parameters ),
 
 			'#define SHADER_NAME ' + shader.name,
 
 			customDefines,
 
+			parameters.batching ? '#define USE_BATCHING' : '',
+			parameters.batchingColor ? '#define USE_BATCHING_COLOR' : '',
 			parameters.instancing ? '#define USE_INSTANCING' : '',
+			parameters.instancingColor ? '#define USE_INSTANCING_COLOR' : '',
 			parameters.supportsVertexTextures ? '#define VERTEX_TEXTURES' : '',
 
 			'#define GAMMA_FACTOR ' + gammaFactorDefine,
@@ -501,6 +508,12 @@ function WebGLProgram( renderer, extensions, cacheKey, material, shader, paramet
 			'#ifdef USE_INSTANCING',
 
 			' attribute mat4 instanceMatrix;',
+
+			'#endif',
+
+			'#ifdef USE_INSTANCING_COLOR',
+
+			' attribute vec3 instanceColor;',
 
 			'#endif',
 
@@ -595,7 +608,8 @@ function WebGLProgram( renderer, extensions, cacheKey, material, shader, paramet
 			parameters.sheen ? '#define USE_SHEEN' : '',
 
 			parameters.vertexTangents ? '#define USE_TANGENT' : '',
-			parameters.vertexColors ? '#define USE_COLOR' : '',
+			// instancingColor/batchingColor 时片元侧也要声明 vColor varying
+			( parameters.vertexColors || parameters.instancingColor || parameters.batchingColor ) ? '#define USE_COLOR' : '',
 			parameters.vertexUvs ? '#define USE_UV' : '',
 			parameters.uvsVertexOnly ? '#define UVS_VERTEX_ONLY' : '',
 

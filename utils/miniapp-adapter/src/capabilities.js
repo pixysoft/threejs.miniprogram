@@ -45,7 +45,9 @@ export default function detectCapabilities(gl) {
         floatRenderable: floatTexture && probeFloatRenderable(gl),
         sRGB: !!gl.getExtension('EXT_sRGB'),
         depthTexture: !!gl.getExtension('WEBGL_depth_texture'),
-        vertexTextures: gl.getParameter(gl.MAX_VERTEX_TEXTURE_IMAGE_UNITS) > 0
+        vertexTextures: gl.getParameter(gl.MAX_VERTEX_TEXTURE_IMAGE_UNITS) > 0,
+        // BatchedMesh 单次多段提交依赖; 无扩展时渲染器自动走循环 fallback
+        multiDraw: !!gl.getExtension('WEBGL_multi_draw')
     }
 
     if (_cache) {

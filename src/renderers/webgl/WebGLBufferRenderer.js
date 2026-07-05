@@ -53,11 +53,39 @@ function WebGLBufferRenderer( gl, extensions, info, capabilities ) {
 
 	}
 
+	// backport from r185(阶段三 4.2#2): BatchedMesh 单次多段提交
+	function renderMultiDraw( starts, counts, drawCount ) {
+
+		if ( drawCount === 0 ) return;
+
+		var extension = extensions.get( 'WEBGL_multi_draw' );
+
+		if ( extension === null ) {
+
+			console.error( 'THREE.WebGLBufferRenderer: hardware does not support extension WEBGL_multi_draw.' );
+			return;
+
+		}
+
+		extension.multiDrawArraysWEBGL( mode, starts, 0, counts, 0, drawCount );
+
+		var elementCount = 0;
+		for ( var i = 0; i < drawCount; i ++ ) {
+
+			elementCount += counts[ i ];
+
+		}
+
+		info.update( elementCount, mode );
+
+	}
+
 	//
 
 	this.setMode = setMode;
 	this.render = render;
 	this.renderInstances = renderInstances;
+	this.renderMultiDraw = renderMultiDraw;
 
 }
 

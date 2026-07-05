@@ -187,6 +187,191 @@ const decoded = THREE.LoaderUtils.decodeText( utf8 );
 global.TextDecoder = savedTextDecoder;
 assert( 'LoaderUtils.decodeText 纯 JS 回退正确解码多字节', decoded === '汉A\uD834\uDD1E' );
 
+// ---- 10. 阶段二收尾 4.1#2: Ray/Frustum/Sphere r185 数学 ----
+
+// Ray.intersectTriangle watertight: 共享边上的命中不遗漏(旧算法在共享边可能双侧都 miss)
+const ray = new THREE.Ray( new THREE.Vector3( 0.5, 0.5, 5 ), new THREE.Vector3( 0, 0, - 1 ) );
+const hitA = ray.intersectTriangle(
+	new THREE.Vector3( 0, 0, 0 ), new THREE.Vector3( 1, 0, 0 ), new THREE.Vector3( 1, 1, 0 ),
+	false, new THREE.Vector3() );
+const hitB = ray.intersectTriangle(
+	new THREE.Vector3( 0, 0, 0 ), new THREE.Vector3( 1, 1, 0 ), new THREE.Vector3( 0, 1, 0 ),
+	false, new THREE.Vector3() );
+assert( 'Ray.intersectTriangle watertight: 共享对角线命中不遗漏', hitA !== null || hitB !== null );
+
+const hitPlain = ray.intersectTriangle(
+	new THREE.Vector3( - 1, - 1, 0 ), new THREE.Vector3( 2, - 1, 0 ), new THREE.Vector3( 0.5, 2, 0 ),
+	false, new THREE.Vector3() );
+assert( 'Ray.intersectTriangle 常规命中点正确', hitPlain !== null && Math.abs( hitPlain.z ) < 1e-12 &&
+	Math.abs( hitPlain.x - 0.5 ) < 1e-12 && Math.abs( hitPlain.y - 0.5 ) < 1e-12 );
+
+const cullBack = ray.intersectTriangle(
+	new THREE.Vector3( - 1, - 1, 0 ), new THREE.Vector3( 0.5, 2, 0 ), new THREE.Vector3( 2, - 1, 0 ),
+	true, new THREE.Vector3() );
+assert( 'Ray.intersectTriangle backfaceCulling 剔除背面', cullBack === null );
+
+// 射线起点在球内: 应返回出射点(而非 null)
+const insideHit = new THREE.Ray( new THREE.Vector3( 0, 0, 0 ), new THREE.Vector3( 0, 0, 1 ) )
+	.intersectSphere( new THREE.Sphere( new THREE.Vector3( 0, 0, 0 ), 2 ), new THREE.Vector3() );
+assert( 'Ray.intersectSphere 起点在球内返回出射点', insideHit !== null && Math.abs( insideHit.z - 2 ) < 1e-12 );
+
+const emptySphere = new THREE.Sphere().makeEmpty();
+assert( 'Ray.intersectsSphere 空球(radius<0)返回 false',
+	new THREE.Ray( new THREE.Vector3(), new THREE.Vector3( 0, 0, 1 ) ).intersectsSphere( emptySphere ) === false );
+
+// Sphere.union / expandByPoint
+const sA = new THREE.Sphere( new THREE.Vector3( 0, 0, 0 ), 1 );
+sA.union( new THREE.Sphere( new THREE.Vector3( 4, 0, 0 ), 1 ) );
+assert( 'Sphere.union 结果包裹两球', Math.abs( sA.center.x - 2 ) < 1e-12 && Math.abs( sA.radius - 3 ) < 1e-12 );
+
+// Frustum: setFromProjectionMatrix 新 API + setFromMatrix 别名
+const cam = new THREE.PerspectiveCamera( 60, 1, 1, 100 );
+cam.updateMatrixWorld( true );
+const projScreen = new THREE.Matrix4().multiplyMatrices( cam.projectionMatrix, cam.matrixWorldInverse );
+const fr1 = new THREE.Frustum().setFromProjectionMatrix( projScreen );
+const fr2 = new THREE.Frustum().setFromMatrix( projScreen );
+assert( 'Frustum.setFromMatrix 别名与 setFromProjectionMatrix 等价',
+	fr1.planes.every( function ( p, i ) { return p.normal.equals( fr2.planes[ i ].normal ) && p.constant === fr2.planes[ i ].constant; } ) );
+assert( 'Frustum 含视锥内点', fr1.containsPoint( new THREE.Vector3( 0, 0, - 10 ) ) );
+assert( 'Frustum 剔除视锥外点', fr1.containsPoint( new THREE.Vector3( 0, 0, 10 ) ) === false );
+
+// Frustum.intersectsObject 消费对象级 boundingSphere(InstancedMesh/BatchedMesh 剔除路径)
+const imCull = new THREE.InstancedMesh( new THREE.BoxBufferGeometry( 1, 1, 1 ), new THREE.MeshBasicMaterial(), 2 );
+imCull.setMatrixAt( 0, new THREE.Matrix4().makeTranslation( 0, 0, - 10 ) );
+imCull.setMatrixAt( 1, new THREE.Matrix4().makeTranslation( 0, 0, - 50 ) );
+imCull.updateMatrixWorld( true );
+assert( 'Frustum.intersectsObject 走对象级 boundingSphere', fr1.intersectsObject( imCull ) === true && imCull.boundingSphere !== null );
+
+// ---- 11. 阶段二收尾 4.1#3: matrixWorldAutoUpdate 脏标记 ----
+
+const parentObj = new THREE.Object3D();
+const staticChild = new THREE.Object3D();
+parentObj.add( staticChild );
+staticChild.position.set( 5, 0, 0 );
+staticChild.updateMatrix();
+staticChild.matrixAutoUpdate = false;
+staticChild.matrixWorldAutoUpdate = false;
+staticChild.matrixWorld.identity();
+parentObj.updateMatrixWorld( true );
+assert( 'matrixWorldAutoUpdate=false 跳过 matrixWorld 重算',
+	staticChild.matrixWorld.elements[ 12 ] === 0 );
+staticChild.matrixWorldAutoUpdate = true;
+parentObj.updateMatrixWorld( true );
+assert( 'matrixWorldAutoUpdate=true 恢复正常更新',
+	Math.abs( staticChild.matrixWorld.elements[ 12 ] - 5 ) < 1e-12 );
+const copied = new THREE.Object3D();
+copied.matrixWorldAutoUpdate = false;
+assert( 'matrixWorldAutoUpdate 随 copy 传递', copied.clone().matrixWorldAutoUpdate === false );
+
+// ---- 12. 阶段三 4.2#1: InstancedMesh 增强 ----
+
+const imGeo = new THREE.BoxBufferGeometry( 2, 2, 2 );
+const im = new THREE.InstancedMesh( imGeo, new THREE.MeshBasicMaterial(), 3 );
+im.setMatrixAt( 0, new THREE.Matrix4().makeTranslation( 0, 0, 0 ) );
+im.setMatrixAt( 1, new THREE.Matrix4().makeTranslation( 10, 0, 0 ) );
+im.setMatrixAt( 2, new THREE.Matrix4().makeTranslation( - 10, 0, 0 ) );
+
+const outM = new THREE.Matrix4();
+im.getMatrixAt( 1, outM );
+assert( 'InstancedMesh.getMatrixAt 读回矩阵', Math.abs( outM.elements[ 12 ] - 10 ) < 1e-12 );
+
+im.setColorAt( 1, new THREE.Color( 1, 0, 0 ) );
+assert( 'InstancedMesh.setColorAt 创建 instanceColor attribute',
+	im.instanceColor !== null && im.instanceColor.itemSize === 3 && im.instanceColor.array[ 3 ] === 1 && im.instanceColor.array[ 4 ] === 0 );
+const outC = new THREE.Color();
+im.getColorAt( 0, outC );
+assert( 'InstancedMesh.getColorAt 未设置的实例返回白色', outC.r === 1 && outC.g === 1 && outC.b === 1 );
+
+im.computeBoundingBox();
+assert( 'InstancedMesh.computeBoundingBox 覆盖全部实例',
+	Math.abs( im.boundingBox.min.x + 11 ) < 1e-12 && Math.abs( im.boundingBox.max.x - 11 ) < 1e-12 );
+im.computeBoundingSphere();
+assert( 'InstancedMesh.computeBoundingSphere 覆盖全部实例', im.boundingSphere.radius >= 11 );
+
+im.updateMatrixWorld( true );
+const rc = new THREE.Raycaster( new THREE.Vector3( 10, 0, 5 ), new THREE.Vector3( 0, 0, - 1 ) );
+const imHits = rc.intersectObject( im );
+assert( 'InstancedMesh.raycast 命中并回填 instanceId',
+	imHits.length > 0 && imHits[ 0 ].instanceId === 1 && imHits[ 0 ].object === im );
+
+const imCopy = im.clone();
+assert( 'InstancedMesh.copy 保留 instanceColor/count', imCopy.count === 3 && imCopy.instanceColor !== null );
+
+// ---- 13. 阶段三 4.2#2: BatchedMesh GL1 版(JS 逻辑层) ----
+
+assert( 'THREE.BatchedMesh 已导出', typeof THREE.BatchedMesh === 'function' );
+
+const bmBox = new THREE.BoxBufferGeometry( 2, 2, 2 );
+const bmSphereGeo = new THREE.SphereBufferGeometry( 1, 8, 8 );
+const bm = new THREE.BatchedMesh( 10, 4000, 8000, new THREE.MeshPhongMaterial() );
+
+const gidBox = bm.addGeometry( bmBox );
+const gidSphere = bm.addGeometry( bmSphereGeo );
+const iid0 = bm.addInstance( gidBox );
+const iid1 = bm.addInstance( gidBox );
+const iid2 = bm.addInstance( gidSphere );
+
+bm.setMatrixAt( iid0, new THREE.Matrix4().makeTranslation( 0, 0, 0 ) );
+bm.setMatrixAt( iid1, new THREE.Matrix4().makeTranslation( 10, 0, 0 ) );
+bm.setMatrixAt( iid2, new THREE.Matrix4().makeTranslation( - 10, 0, 0 ) );
+bm.setColorAt( iid1, new THREE.Color( 0, 1, 0 ) );
+
+assert( 'BatchedMesh 实例计数正确', bm.instanceCount === 3 && bm.maxInstanceCount === 10 );
+assert( 'BatchedMesh 矩阵纹理为 float RGBA(GL1 编码)',
+	bm._matricesTexture.image.data instanceof Float32Array && bm._indirectTexture.image.data instanceof Float32Array );
+assert( 'BatchedMesh 纹理尺寸为 2 的幂(GL1 NPOT 规避)',
+	( bm._matricesTexture.image.width & ( bm._matricesTexture.image.width - 1 ) ) === 0 );
+
+const bmM = new THREE.Matrix4();
+bm.getMatrixAt( iid1, bmM );
+assert( 'BatchedMesh.getMatrixAt 读回矩阵', Math.abs( bmM.elements[ 12 ] - 10 ) < 1e-12 );
+
+const bmC = new THREE.Color();
+bm.getColorAt( iid1, bmC );
+assert( 'BatchedMesh.setColorAt/getColorAt', bmC.g === 1 && bmC.r === 0 );
+
+bm.computeBoundingBox();
+assert( 'BatchedMesh.computeBoundingBox 覆盖全部实例',
+	bm.boundingBox.min.x < - 10 && bm.boundingBox.max.x > 10 );
+
+bm.updateMatrixWorld( true );
+const bmRc = new THREE.Raycaster( new THREE.Vector3( 10, 0, 5 ), new THREE.Vector3( 0, 0, - 1 ) );
+const bmHits = bmRc.intersectObject( bm );
+assert( 'BatchedMesh.raycast 命中并回填 batchId',
+	bmHits.length > 0 && bmHits[ 0 ].batchId === iid1 && bmHits[ 0 ].object === bm );
+
+// onBeforeRender: 剔除 + 排序 + 间接索引写入(渲染前逐帧准备)
+bm.setVisibleAt( iid2, false );
+bm.onBeforeRender( null, null, cam, bm.geometry, bm.material );
+assert( 'BatchedMesh.onBeforeRender 可见性过滤生效(2/3 可见 + 视锥剔除)',
+	bm._multiDrawCount <= 2 && bm._multiDrawCount >= 0 );
+
+bm.setVisibleAt( iid2, true );
+bm.perObjectFrustumCulled = false;
+bm.sortObjects = false;
+bm._visibilityChanged = true;
+bm.onBeforeRender( null, null, cam, bm.geometry, bm.material );
+assert( 'BatchedMesh.onBeforeRender 无剔除时全部可见段入列', bm._multiDrawCount === 3 );
+assert( 'BatchedMesh 间接索引写入 float 纹理 .r 通道',
+	bm._indirectTexture.image.data[ 0 * 4 ] === 0 && bm._indirectTexture.image.data[ 1 * 4 ] === 1 && bm._indirectTexture.image.data[ 2 * 4 ] === 2 );
+
+bm.deleteInstance( iid1 );
+assert( 'BatchedMesh.deleteInstance 后实例计数减一', bm.instanceCount === 2 );
+
+// ---- 14. capabilities 新增 multiDraw 探测项 ----
+
+const fakeGL = {
+	getExtension: function ( name ) {
+
+		return ( name === 'ANGLE_instanced_arrays' || name === 'WEBGL_multi_draw' ) ? {} : null;
+
+	},
+	getParameter: function () { return 8; },
+	MAX_VERTEX_TEXTURE_IMAGE_UNITS: 35660
+};
+const caps = THREE.global.detectCapabilities( fakeGL );
+assert( 'detectCapabilities 返回 multiDraw 探测项', caps.multiDraw === true && caps.instancing === true && caps.floatTexture === false );
+
 // ---- 结果 ----
 
 THREE.global.clearCanvas();

@@ -62,12 +62,41 @@ function WebGLIndexedBufferRenderer( gl, extensions, info, capabilities ) {
 
 	}
 
+	// backport from r185(阶段三 4.2#2): BatchedMesh 单次多段提交
+	// (starts 为字节偏移; 无 WEBGL_multi_draw 扩展时渲染器走循环 fallback, 不会调到这里)
+	function renderMultiDraw( starts, counts, drawCount ) {
+
+		if ( drawCount === 0 ) return;
+
+		var extension = extensions.get( 'WEBGL_multi_draw' );
+
+		if ( extension === null ) {
+
+			console.error( 'THREE.WebGLIndexedBufferRenderer: hardware does not support extension WEBGL_multi_draw.' );
+			return;
+
+		}
+
+		extension.multiDrawElementsWEBGL( mode, counts, 0, type, starts, 0, drawCount );
+
+		var elementCount = 0;
+		for ( var i = 0; i < drawCount; i ++ ) {
+
+			elementCount += counts[ i ];
+
+		}
+
+		info.update( elementCount, mode );
+
+	}
+
 	//
 
 	this.setMode = setMode;
 	this.setIndex = setIndex;
 	this.render = render;
 	this.renderInstances = renderInstances;
+	this.renderMultiDraw = renderMultiDraw;
 
 }
 
