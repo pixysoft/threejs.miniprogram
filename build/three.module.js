@@ -226,6 +226,15 @@ var InterpolateSmooth = 2302;
 var ZeroCurvatureEnding = 2400;
 var ZeroSlopeEnding = 2401;
 var WrapAroundEnding = 2402;
+// backport from r185: additive 动画混合模式
+var NormalAnimationBlendMode = 2500;
+var AdditiveAnimationBlendMode = 2501;
+// backport from r185: ColorManagement 色彩空间标识
+var NoColorSpace = '';
+var SRGBColorSpace = 'srgb';
+var LinearSRGBColorSpace = 'srgb-linear';
+var LinearTransfer = 'linear';
+var SRGBTransfer = 'srgb';
 var TrianglesDrawMode = 0;
 var TriangleStripDrawMode = 1;
 var TriangleFanDrawMode = 2;
@@ -1074,6 +1083,29 @@ Object.assign( Quaternion, {
 		dst[ dstOffset + 1 ] = y0;
 		dst[ dstOffset + 2 ] = z0;
 		dst[ dstOffset + 3 ] = w0;
+
+	},
+
+	// backport from r185: additive 动画混合(PropertyMixer._slerpAdditive /
+	// AnimationUtils.makeClipAdditive)的数学前置
+	multiplyQuaternionsFlat: function ( dst, dstOffset, src0, srcOffset0, src1, srcOffset1 ) {
+
+		var x0 = src0[ srcOffset0 ];
+		var y0 = src0[ srcOffset0 + 1 ];
+		var z0 = src0[ srcOffset0 + 2 ];
+		var w0 = src0[ srcOffset0 + 3 ];
+
+		var x1 = src1[ srcOffset1 ];
+		var y1 = src1[ srcOffset1 + 1 ];
+		var z1 = src1[ srcOffset1 + 2 ];
+		var w1 = src1[ srcOffset1 + 3 ];
+
+		dst[ dstOffset ] = x0 * w1 + w0 * x1 + y0 * z1 - z0 * y1;
+		dst[ dstOffset + 1 ] = y0 * w1 + w0 * y1 + z0 * x1 - x0 * z1;
+		dst[ dstOffset + 2 ] = z0 * w1 + w0 * z1 + x0 * y1 - y0 * x1;
+		dst[ dstOffset + 3 ] = w0 * w1 - x0 * x1 - y0 * y1 - z0 * z1;
+
+		return dst;
 
 	}
 
@@ -8082,6 +8114,268 @@ Object.assign( Triangle.prototype, {
  * @author mrdoob / http://mrdoob.com/
  */
 
+function arrayMax( array ) {
+
+	if ( array.length === 0 ) return - Infinity;
+
+	var max = array[ 0 ];
+
+	for ( var i = 1, l = array.length; i < l; ++ i ) {
+
+		if ( array[ i ] > max ) max = array[ i ];
+
+	}
+
+	return max;
+
+}
+
+// backport from r185: AnimationUtils 依赖
+function isTypedArray( object ) {
+
+	return ArrayBuffer.isView( object ) && ! ( object instanceof DataView );
+
+}
+
+// backport from r185: 同一条警告只输出一次(ColorManagement 依赖)
+var _warnedMessages = {};
+
+function warnOnce( message ) {
+
+	if ( _warnedMessages[ message ] === true ) return;
+
+	_warnedMessages[ message ] = true;
+
+	console.warn( message );
+
+}
+
+/**
+ * backport from r185 (升级差距分析说明 3.0 §2.2)
+ *
+ * 与官方 r185 的唯一刻意分歧: enabled 默认 false(官方默认 true)。
+ * 原因: 现网所有材质色值都是在"无色彩管理"下调出来的, 默认开启等于全网色偏。
+ * 新项目/新页面可 THREE.ColorManagement.enabled = true 显式启用,
+ * 配合 renderer.gammaOutput = true 得到正确 sRGB 工作流。
+ * shader 侧的 OETF 输出转换 r110 已有等价物(gammaOutput/encodings_fragment chunk), 不动。
+ */
+
+var LINEAR_REC709_TO_XYZ = new Matrix3().set(
+	0.4123908, 0.3575843, 0.1804808,
+	0.2126390, 0.7151687, 0.0721923,
+	0.0193308, 0.1191948, 0.9505322
+);
+
+var XYZ_TO_LINEAR_REC709 = new Matrix3().set(
+	3.2409699, - 1.5373832, - 0.4986108,
+	- 0.9692436, 1.8759675, 0.0415551,
+	0.0556301, - 0.2039770, 1.0569715
+);
+
+function createColorManagement() {
+
+	var ColorManagement = {
+
+		// 与官方 r185 的刻意分歧: 默认关闭, 见文件头
+		enabled: false,
+
+		workingColorSpace: LinearSRGBColorSpace,
+
+		/**
+		 * Implementations of supported color spaces.
+		 *
+		 * Required:
+		 *	- primaries: chromaticity coordinates [ rx ry gx gy bx by ]
+		 *	- whitePoint: reference white [ x y ]
+		 *	- transfer: transfer function (pre-defined)
+		 *	- toXYZ: Matrix3 RGB to XYZ transform
+		 *	- fromXYZ: Matrix3 XYZ to RGB transform
+		 *	- luminanceCoefficients: RGB luminance coefficients
+		 *
+		 * Optional:
+		 *  - outputColorSpaceConfig: { drawingBufferColorSpace: ColorSpace }
+		 *  - workingColorSpaceConfig: { unpackColorSpace: ColorSpace }
+		 */
+		spaces: {},
+
+		convert: function ( color, sourceColorSpace, targetColorSpace ) {
+
+			if ( this.enabled === false || sourceColorSpace === targetColorSpace || ! sourceColorSpace || ! targetColorSpace ) {
+
+				return color;
+
+			}
+
+			if ( this.spaces[ sourceColorSpace ].transfer === SRGBTransfer ) {
+
+				color.r = SRGBToLinear( color.r );
+				color.g = SRGBToLinear( color.g );
+				color.b = SRGBToLinear( color.b );
+
+			}
+
+			if ( this.spaces[ sourceColorSpace ].primaries !== this.spaces[ targetColorSpace ].primaries ) {
+
+				color.applyMatrix3( this.spaces[ sourceColorSpace ].toXYZ );
+				color.applyMatrix3( this.spaces[ targetColorSpace ].fromXYZ );
+
+			}
+
+			if ( this.spaces[ targetColorSpace ].transfer === SRGBTransfer ) {
+
+				color.r = LinearToSRGB( color.r );
+				color.g = LinearToSRGB( color.g );
+				color.b = LinearToSRGB( color.b );
+
+			}
+
+			return color;
+
+		},
+
+		workingToColorSpace: function ( color, targetColorSpace ) {
+
+			return this.convert( color, this.workingColorSpace, targetColorSpace );
+
+		},
+
+		colorSpaceToWorking: function ( color, sourceColorSpace ) {
+
+			return this.convert( color, sourceColorSpace, this.workingColorSpace );
+
+		},
+
+		getPrimaries: function ( colorSpace ) {
+
+			return this.spaces[ colorSpace ].primaries;
+
+		},
+
+		getTransfer: function ( colorSpace ) {
+
+			if ( colorSpace === NoColorSpace ) return LinearTransfer;
+
+			return this.spaces[ colorSpace ].transfer;
+
+		},
+
+		getLuminanceCoefficients: function ( target, colorSpace ) {
+
+			if ( colorSpace === undefined ) colorSpace = this.workingColorSpace;
+
+			return target.fromArray( this.spaces[ colorSpace ].luminanceCoefficients );
+
+		},
+
+		define: function ( colorSpaces ) {
+
+			Object.assign( this.spaces, colorSpaces );
+
+		},
+
+		// Internal APIs
+
+		_getMatrix: function ( targetMatrix, sourceColorSpace, targetColorSpace ) {
+
+			return targetMatrix
+				.copy( this.spaces[ sourceColorSpace ].toXYZ )
+				.multiply( this.spaces[ targetColorSpace ].fromXYZ );
+
+		},
+
+		_getDrawingBufferColorSpace: function ( colorSpace ) {
+
+			return this.spaces[ colorSpace ].outputColorSpaceConfig.drawingBufferColorSpace;
+
+		},
+
+		_getUnpackColorSpace: function ( colorSpace ) {
+
+			if ( colorSpace === undefined ) colorSpace = this.workingColorSpace;
+
+			return this.spaces[ colorSpace ].workingColorSpaceConfig.unpackColorSpace;
+
+		},
+
+		// Deprecated
+
+		fromWorkingColorSpace: function ( color, targetColorSpace ) {
+
+			warnOnce( 'ColorManagement: .fromWorkingColorSpace() has been renamed to .workingToColorSpace().' ); // @deprecated, r177
+
+			return ColorManagement.workingToColorSpace( color, targetColorSpace );
+
+		},
+
+		toWorkingColorSpace: function ( color, sourceColorSpace ) {
+
+			warnOnce( 'ColorManagement: .toWorkingColorSpace() has been renamed to .colorSpaceToWorking().' ); // @deprecated, r177
+
+			return ColorManagement.colorSpaceToWorking( color, sourceColorSpace );
+
+		}
+
+	};
+
+	/******************************************************************************
+	 * sRGB definitions
+	 */
+
+	var REC709_PRIMARIES = [ 0.640, 0.330, 0.300, 0.600, 0.150, 0.060 ];
+	var REC709_LUMINANCE_COEFFICIENTS = [ 0.2126, 0.7152, 0.0722 ];
+	var D65 = [ 0.3127, 0.3290 ];
+
+	var spaces = {};
+
+	spaces[ LinearSRGBColorSpace ] = {
+		primaries: REC709_PRIMARIES,
+		whitePoint: D65,
+		transfer: LinearTransfer,
+		toXYZ: LINEAR_REC709_TO_XYZ,
+		fromXYZ: XYZ_TO_LINEAR_REC709,
+		luminanceCoefficients: REC709_LUMINANCE_COEFFICIENTS,
+		workingColorSpaceConfig: { unpackColorSpace: SRGBColorSpace },
+		outputColorSpaceConfig: { drawingBufferColorSpace: SRGBColorSpace }
+	};
+
+	spaces[ SRGBColorSpace ] = {
+		primaries: REC709_PRIMARIES,
+		whitePoint: D65,
+		transfer: SRGBTransfer,
+		toXYZ: LINEAR_REC709_TO_XYZ,
+		fromXYZ: XYZ_TO_LINEAR_REC709,
+		luminanceCoefficients: REC709_LUMINANCE_COEFFICIENTS,
+		outputColorSpaceConfig: { drawingBufferColorSpace: SRGBColorSpace }
+	};
+
+	ColorManagement.define( spaces );
+
+	return ColorManagement;
+
+}
+
+var ColorManagement = createColorManagement();
+
+function SRGBToLinear( c ) {
+
+	return ( c < 0.04045 ) ? c * 0.0773993808 : Math.pow( c * 0.9478672986 + 0.0521327014, 2.4 );
+
+}
+
+function LinearToSRGB( c ) {
+
+	return ( c < 0.0031308 ) ? c * 12.92 : 1.055 * ( Math.pow( c, 0.41666 ) ) - 0.055;
+
+}
+
+/**
+ * @author mrdoob / http://mrdoob.com/
+ *
+ * backport from r185(部分): set 系入口按 r185 对齐, 支持可选 colorSpace 参数并经
+ * ColorManagement 做 sRGB→working 转换。ColorManagement.enabled 默认 false(见该文件头),
+ * 关闭时全部入口行为与 r110 逐位一致。
+ */
+
 var _colorKeywords = { 'aliceblue': 0xF0F8FF, 'antiquewhite': 0xFAEBD7, 'aqua': 0x00FFFF, 'aquamarine': 0x7FFFD4, 'azure': 0xF0FFFF,
 	'beige': 0xF5F5DC, 'bisque': 0xFFE4C4, 'black': 0x000000, 'blanchedalmond': 0xFFEBCD, 'blue': 0x0000FF, 'blueviolet': 0x8A2BE2,
 	'brown': 0xA52A2A, 'burlywood': 0xDEB887, 'cadetblue': 0x5F9EA0, 'chartreuse': 0x7FFF00, 'chocolate': 0xD2691E, 'coral': 0xFF7F50,
@@ -8109,6 +8403,7 @@ var _colorKeywords = { 'aliceblue': 0xF0F8FF, 'antiquewhite': 0xFAEBD7, 'aqua': 
 
 var _hslA = { h: 0, s: 0, l: 0 };
 var _hslB = { h: 0, s: 0, l: 0 };
+var _colorTemp;
 
 function Color( r, g, b ) {
 
@@ -8134,13 +8429,13 @@ function hue2rgb( p, q, t ) {
 
 }
 
-function SRGBToLinear( c ) {
+function SRGBToLinear$1( c ) {
 
 	return ( c < 0.04045 ) ? c * 0.0773993808 : Math.pow( c * 0.9478672986 + 0.0521327014, 2.4 );
 
 }
 
-function LinearToSRGB( c ) {
+function LinearToSRGB$1( c ) {
 
 	return ( c < 0.0031308 ) ? c * 12.92 : 1.055 * ( Math.pow( c, 0.41666 ) ) - 0.055;
 
@@ -8182,7 +8477,9 @@ Object.assign( Color.prototype, {
 
 	},
 
-	setHex: function ( hex ) {
+	setHex: function ( hex, colorSpace ) {
+
+		if ( colorSpace === undefined ) colorSpace = SRGBColorSpace;
 
 		hex = Math.floor( hex );
 
@@ -8190,21 +8487,29 @@ Object.assign( Color.prototype, {
 		this.g = ( hex >> 8 & 255 ) / 255;
 		this.b = ( hex & 255 ) / 255;
 
+		ColorManagement.colorSpaceToWorking( this, colorSpace );
+
 		return this;
 
 	},
 
-	setRGB: function ( r, g, b ) {
+	setRGB: function ( r, g, b, colorSpace ) {
+
+		if ( colorSpace === undefined ) colorSpace = ColorManagement.workingColorSpace;
 
 		this.r = r;
 		this.g = g;
 		this.b = b;
 
+		ColorManagement.colorSpaceToWorking( this, colorSpace );
+
 		return this;
 
 	},
 
-	setHSL: function ( h, s, l ) {
+	setHSL: function ( h, s, l, colorSpace ) {
+
+		if ( colorSpace === undefined ) colorSpace = ColorManagement.workingColorSpace;
 
 		// h,s,l ranges are in 0.0 - 1.0
 		h = _Math.euclideanModulo( h, 1 );
@@ -8226,11 +8531,15 @@ Object.assign( Color.prototype, {
 
 		}
 
+		ColorManagement.colorSpaceToWorking( this, colorSpace );
+
 		return this;
 
 	},
 
-	setStyle: function ( style ) {
+	setStyle: function ( style, colorSpace ) {
+
+		if ( colorSpace === undefined ) colorSpace = SRGBColorSpace;
 
 		function handleAlpha( string ) {
 
@@ -8267,6 +8576,8 @@ Object.assign( Color.prototype, {
 						this.g = Math.min( 255, parseInt( color[ 2 ], 10 ) ) / 255;
 						this.b = Math.min( 255, parseInt( color[ 3 ], 10 ) ) / 255;
 
+						ColorManagement.colorSpaceToWorking( this, colorSpace );
+
 						handleAlpha( color[ 5 ] );
 
 						return this;
@@ -8279,6 +8590,8 @@ Object.assign( Color.prototype, {
 						this.r = Math.min( 100, parseInt( color[ 1 ], 10 ) ) / 100;
 						this.g = Math.min( 100, parseInt( color[ 2 ], 10 ) ) / 100;
 						this.b = Math.min( 100, parseInt( color[ 3 ], 10 ) ) / 100;
+
+						ColorManagement.colorSpaceToWorking( this, colorSpace );
 
 						handleAlpha( color[ 5 ] );
 
@@ -8300,7 +8613,7 @@ Object.assign( Color.prototype, {
 
 						handleAlpha( color[ 5 ] );
 
-						return this.setHSL( h, s, l );
+						return this.setHSL( h, s, l, colorSpace );
 
 					}
 
@@ -8322,6 +8635,8 @@ Object.assign( Color.prototype, {
 				this.g = parseInt( hex.charAt( 1 ) + hex.charAt( 1 ), 16 ) / 255;
 				this.b = parseInt( hex.charAt( 2 ) + hex.charAt( 2 ), 16 ) / 255;
 
+				ColorManagement.colorSpaceToWorking( this, colorSpace );
+
 				return this;
 
 			} else if ( size === 6 ) {
@@ -8331,6 +8646,8 @@ Object.assign( Color.prototype, {
 				this.g = parseInt( hex.charAt( 2 ) + hex.charAt( 3 ), 16 ) / 255;
 				this.b = parseInt( hex.charAt( 4 ) + hex.charAt( 5 ), 16 ) / 255;
 
+				ColorManagement.colorSpaceToWorking( this, colorSpace );
+
 				return this;
 
 			}
@@ -8339,7 +8656,7 @@ Object.assign( Color.prototype, {
 
 		if ( style && style.length > 0 ) {
 
-			return this.setColorName( style );
+			return this.setColorName( style, colorSpace );
 
 		}
 
@@ -8347,7 +8664,9 @@ Object.assign( Color.prototype, {
 
 	},
 
-	setColorName: function ( style ) {
+	setColorName: function ( style, colorSpace ) {
+
+		if ( colorSpace === undefined ) colorSpace = SRGBColorSpace;
 
 		// color keywords
 		var hex = _colorKeywords[ style ];
@@ -8355,7 +8674,7 @@ Object.assign( Color.prototype, {
 		if ( hex !== undefined ) {
 
 			// red
-			this.setHex( hex );
+			this.setHex( hex, colorSpace );
 
 		} else {
 
@@ -8428,9 +8747,9 @@ Object.assign( Color.prototype, {
 
 	copySRGBToLinear: function ( color ) {
 
-		this.r = SRGBToLinear( color.r );
-		this.g = SRGBToLinear( color.g );
-		this.b = SRGBToLinear( color.b );
+		this.r = SRGBToLinear$1( color.r );
+		this.g = SRGBToLinear$1( color.g );
+		this.b = SRGBToLinear$1( color.b );
 
 		return this;
 
@@ -8438,9 +8757,9 @@ Object.assign( Color.prototype, {
 
 	copyLinearToSRGB: function ( color ) {
 
-		this.r = LinearToSRGB( color.r );
-		this.g = LinearToSRGB( color.g );
-		this.b = LinearToSRGB( color.b );
+		this.r = LinearToSRGB$1( color.r );
+		this.g = LinearToSRGB$1( color.g );
+		this.b = LinearToSRGB$1( color.b );
 
 		return this;
 
@@ -8462,19 +8781,24 @@ Object.assign( Color.prototype, {
 
 	},
 
-	getHex: function () {
+	getHex: function ( colorSpace ) {
 
-		return ( this.r * 255 ) << 16 ^ ( this.g * 255 ) << 8 ^ ( this.b * 255 ) << 0;
+		if ( colorSpace === undefined ) colorSpace = SRGBColorSpace;
+
+		// r110 兼容: 转换在临时色上进行(禁用色彩管理时与旧版逐位一致, 保留旧版截断语义)
+		ColorManagement.workingToColorSpace( _colorTemp.copy( this ), colorSpace );
+
+		return ( _colorTemp.r * 255 ) << 16 ^ ( _colorTemp.g * 255 ) << 8 ^ ( _colorTemp.b * 255 ) << 0;
 
 	},
 
-	getHexString: function () {
+	getHexString: function ( colorSpace ) {
 
-		return ( '000000' + this.getHex().toString( 16 ) ).slice( - 6 );
+		return ( '000000' + this.getHex( colorSpace ).toString( 16 ) ).slice( - 6 );
 
 	},
 
-	getHSL: function ( target ) {
+	getHSL: function ( target, colorSpace ) {
 
 		// h,s,l ranges are in 0.0 - 1.0
 
@@ -8485,7 +8809,11 @@ Object.assign( Color.prototype, {
 
 		}
 
-		var r = this.r, g = this.g, b = this.b;
+		if ( colorSpace === undefined ) colorSpace = ColorManagement.workingColorSpace;
+
+		ColorManagement.workingToColorSpace( _colorTemp.copy( this ), colorSpace );
+
+		var r = _colorTemp.r, g = _colorTemp.g, b = _colorTemp.b;
 
 		var max = Math.max( r, g, b );
 		var min = Math.min( r, g, b );
@@ -8524,9 +8852,27 @@ Object.assign( Color.prototype, {
 
 	},
 
-	getStyle: function () {
+	getStyle: function ( colorSpace ) {
 
-		return 'rgb(' + ( ( this.r * 255 ) | 0 ) + ',' + ( ( this.g * 255 ) | 0 ) + ',' + ( ( this.b * 255 ) | 0 ) + ')';
+		if ( colorSpace === undefined ) colorSpace = SRGBColorSpace;
+
+		ColorManagement.workingToColorSpace( _colorTemp.copy( this ), colorSpace );
+
+		return 'rgb(' + ( ( _colorTemp.r * 255 ) | 0 ) + ',' + ( ( _colorTemp.g * 255 ) | 0 ) + ',' + ( ( _colorTemp.b * 255 ) | 0 ) + ')';
+
+	},
+
+	// backport from r185: ColorManagement 跨 primaries 转换依赖
+	applyMatrix3: function ( m ) {
+
+		var r = this.r, g = this.g, b = this.b;
+		var e = m.elements;
+
+		this.r = e[ 0 ] * r + e[ 3 ] * g + e[ 6 ] * b;
+		this.g = e[ 1 ] * r + e[ 4 ] * g + e[ 7 ] * b;
+		this.b = e[ 2 ] * r + e[ 5 ] * g + e[ 8 ] * b;
+
+		return this;
 
 	},
 
@@ -8667,6 +9013,8 @@ Object.assign( Color.prototype, {
 } );
 
 Color.NAMES = _colorKeywords;
+
+_colorTemp = new Color();
 
 /**
  * @author mrdoob / http://mrdoob.com/
@@ -9946,26 +10294,6 @@ Object.assign( DirectGeometry.prototype, {
 	}
 
 } );
-
-/**
- * @author mrdoob / http://mrdoob.com/
- */
-
-function arrayMax( array ) {
-
-	if ( array.length === 0 ) return - Infinity;
-
-	var max = array[ 0 ];
-
-	for ( var i = 1, l = array.length; i < l; ++ i ) {
-
-		if ( array[ i ] > max ) max = array[ i ];
-
-	}
-
-	return max;
-
-}
 
 /**
  * @author alteredq / http://alteredqualia.com/
@@ -29340,7 +29668,11 @@ Line.prototype = Object.assign( Object.create( Object3D.prototype ), {
 
 	raycast: function ( raycaster, intersects ) {
 
-		var precision = raycaster.linePrecision;
+		// backport from r185: 阈值优先取 params.Line.threshold(世界单位, 可调),
+		// 兼容 r110 旧 API linePrecision(默认两者同为 1, 行为不变)
+		var precision = ( raycaster.params.Line && raycaster.params.Line.threshold !== undefined )
+			? raycaster.params.Line.threshold
+			: raycaster.linePrecision;
 
 		var geometry = this.geometry;
 		var matrixWorld = this.matrixWorld;
@@ -35365,242 +35697,524 @@ var Materials = /*#__PURE__*/Object.freeze({
 	Material: Material
 });
 
+// backport from r185: makeClipAdditive / subclip(升级差距分析说明 3.0 §2.1)
+
 /**
- * @author tschw
- * @author Ben Houston / http://clara.io/
- * @author David Sarno / http://lighthaus.us/
+ * r110 保留函数: 类型数组/普通数组统一切片(KeyframeTrack.trim/optimize/clone 消费)。
+ *
+ * @param {TypedArray|Array} array - 源数组
+ * @param {number} [from] - 起始下标
+ * @param {number} [to] - 结束下标(不含)
+ * @return {TypedArray|Array} 切片副本
  */
+function arraySlice( array, from, to ) {
 
-var AnimationUtils = {
+	if ( isTypedArray( array ) ) {
 
-	// same as Array.prototype.slice, but also works on typed arrays
-	arraySlice: function ( array, from, to ) {
-
-		if ( AnimationUtils.isTypedArray( array ) ) {
-
-			// in ios9 array.subarray(from, undefined) will return empty array
-			// but array.subarray(from) or array.subarray(from, len) is correct
-			return new array.constructor( array.subarray( from, to !== undefined ? to : array.length ) );
-
-		}
-
-		return array.slice( from, to );
-
-	},
-
-	// converts an array to a specific type
-	convertArray: function ( array, type, forceClone ) {
-
-		if ( ! array || // let 'undefined' and 'null' pass
-			! forceClone && array.constructor === type ) return array;
-
-		if ( typeof type.BYTES_PER_ELEMENT === 'number' ) {
-
-			return new type( array ); // create typed array
-
-		}
-
-		return Array.prototype.slice.call( array ); // create Array
-
-	},
-
-	isTypedArray: function ( object ) {
-
-		return ArrayBuffer.isView( object ) &&
-			! ( object instanceof DataView );
-
-	},
-
-	// returns an array by which times and values can be sorted
-	getKeyframeOrder: function ( times ) {
-
-		function compareTime( i, j ) {
-
-			return times[ i ] - times[ j ];
-
-		}
-
-		var n = times.length;
-		var result = new Array( n );
-		for ( var i = 0; i !== n; ++ i ) result[ i ] = i;
-
-		result.sort( compareTime );
-
-		return result;
-
-	},
-
-	// uses the array previously returned by 'getKeyframeOrder' to sort data
-	sortedArray: function ( values, stride, order ) {
-
-		var nValues = values.length;
-		var result = new values.constructor( nValues );
-
-		for ( var i = 0, dstOffset = 0; dstOffset !== nValues; ++ i ) {
-
-			var srcOffset = order[ i ] * stride;
-
-			for ( var j = 0; j !== stride; ++ j ) {
-
-				result[ dstOffset ++ ] = values[ srcOffset + j ];
-
-			}
-
-		}
-
-		return result;
-
-	},
-
-	// function for parsing AOS keyframe formats
-	flattenJSON: function ( jsonKeys, times, values, valuePropertyName ) {
-
-		var i = 1, key = jsonKeys[ 0 ];
-
-		while ( key !== undefined && key[ valuePropertyName ] === undefined ) {
-
-			key = jsonKeys[ i ++ ];
-
-		}
-
-		if ( key === undefined ) return; // no data
-
-		var value = key[ valuePropertyName ];
-		if ( value === undefined ) return; // no data
-
-		if ( Array.isArray( value ) ) {
-
-			do {
-
-				value = key[ valuePropertyName ];
-
-				if ( value !== undefined ) {
-
-					times.push( key.time );
-					values.push.apply( values, value ); // push all elements
-
-				}
-
-				key = jsonKeys[ i ++ ];
-
-			} while ( key !== undefined );
-
-		} else if ( value.toArray !== undefined ) {
-
-			// ...assume THREE.Math-ish
-
-			do {
-
-				value = key[ valuePropertyName ];
-
-				if ( value !== undefined ) {
-
-					times.push( key.time );
-					value.toArray( values, values.length );
-
-				}
-
-				key = jsonKeys[ i ++ ];
-
-			} while ( key !== undefined );
-
-		} else {
-
-			// otherwise push as-is
-
-			do {
-
-				value = key[ valuePropertyName ];
-
-				if ( value !== undefined ) {
-
-					times.push( key.time );
-					values.push( value );
-
-				}
-
-				key = jsonKeys[ i ++ ];
-
-			} while ( key !== undefined );
-
-		}
-
-	},
-
-	subclip: function ( sourceClip, name, startFrame, endFrame, fps ) {
-
-		fps = fps || 30;
-
-		var clip = sourceClip.clone();
-
-		clip.name = name;
-
-		var tracks = [];
-
-		for ( var i = 0; i < clip.tracks.length; ++ i ) {
-
-			var track = clip.tracks[ i ];
-			var valueSize = track.getValueSize();
-
-			var times = [];
-			var values = [];
-
-			for ( var j = 0; j < track.times.length; ++ j ) {
-
-				var frame = track.times[ j ] * fps;
-
-				if ( frame < startFrame || frame >= endFrame ) continue;
-
-				times.push( track.times[ j ] );
-
-				for ( var k = 0; k < valueSize; ++ k ) {
-
-					values.push( track.values[ j * valueSize + k ] );
-
-				}
-
-			}
-
-			if ( times.length === 0 ) continue;
-
-			track.times = AnimationUtils.convertArray( times, track.times.constructor );
-			track.values = AnimationUtils.convertArray( values, track.values.constructor );
-
-			tracks.push( track );
-
-		}
-
-		clip.tracks = tracks;
-
-		// find minimum .times value across all tracks in the trimmed clip
-
-		var minStartTime = Infinity;
-
-		for ( var i = 0; i < clip.tracks.length; ++ i ) {
-
-			if ( minStartTime > clip.tracks[ i ].times[ 0 ] ) {
-
-				minStartTime = clip.tracks[ i ].times[ 0 ];
-
-			}
-
-		}
-
-		// shift all tracks such that clip begins at t=0
-
-		for ( var i = 0; i < clip.tracks.length; ++ i ) {
-
-			clip.tracks[ i ].shift( - 1 * minStartTime );
-
-		}
-
-		clip.resetDuration();
-
-		return clip;
+		// in ios9 array.subarray doesn't exist, so we use slice via TypedArray ctor
+		return new array.constructor( array.subarray( from, to !== undefined ? to : array.length ) );
 
 	}
 
-};
+	return array.slice( from, to );
+
+}
+
+/**
+ * Converts an array to a specific type.
+ *
+ * @param {TypedArray|Array} array - The array to convert.
+ * @param {TypedArray.constructor} type - The constructor of a typed array that defines the new type.
+ * @return {TypedArray} The converted array.
+ */
+function convertArray( array, type ) {
+
+	if ( ! array || array.constructor === type ) return array;
+
+	if ( typeof type.BYTES_PER_ELEMENT === 'number' ) {
+
+		return new type( array ); // create typed array
+
+	}
+
+	return Array.prototype.slice.call( array ); // create Array
+
+}
+
+/**
+ * Returns an array by which times and values can be sorted.
+ *
+ * @param {Array<number>} times - The keyframe time values.
+ * @return {Array<number>} The array.
+ */
+function getKeyframeOrder( times ) {
+
+	function compareTime( i, j ) {
+
+		return times[ i ] - times[ j ];
+
+	}
+
+	const n = times.length;
+	const result = new Array( n );
+	for ( let i = 0; i !== n; ++ i ) result[ i ] = i;
+
+	result.sort( compareTime );
+
+	return result;
+
+}
+
+/**
+ * Sorts the given array by the previously computed order via `getKeyframeOrder()`.
+ *
+ * @param {Array<number>} values - The values to sort.
+ * @param {number} stride - The stride.
+ * @param {Array<number>} order - The sort order.
+ * @return {Array<number>} The sorted values.
+ */
+function sortedArray( values, stride, order ) {
+
+	const nValues = values.length;
+	const result = new values.constructor( nValues );
+
+	for ( let i = 0, dstOffset = 0; dstOffset !== nValues; ++ i ) {
+
+		const srcOffset = order[ i ] * stride;
+
+		for ( let j = 0; j !== stride; ++ j ) {
+
+			result[ dstOffset ++ ] = values[ srcOffset + j ];
+
+		}
+
+	}
+
+	return result;
+
+}
+
+/**
+ * Used for parsing AOS keyframe formats.
+ *
+ * @param {Array<number>} jsonKeys - A list of JSON keyframes.
+ * @param {Array<number>} times - This array will be filled with keyframe times by this function.
+ * @param {Array<number>} values - This array will be filled with keyframe values by this function.
+ * @param {string} valuePropertyName - The name of the property to use.
+ */
+function flattenJSON( jsonKeys, times, values, valuePropertyName ) {
+
+	let i = 1, key = jsonKeys[ 0 ];
+
+	while ( key !== undefined && key[ valuePropertyName ] === undefined ) {
+
+		key = jsonKeys[ i ++ ];
+
+	}
+
+	if ( key === undefined ) return; // no data
+
+	let value = key[ valuePropertyName ];
+	if ( value === undefined ) return; // no data
+
+	if ( Array.isArray( value ) ) {
+
+		do {
+
+			value = key[ valuePropertyName ];
+
+			if ( value !== undefined ) {
+
+				times.push( key.time );
+				values.push( ...value ); // push all elements
+
+			}
+
+			key = jsonKeys[ i ++ ];
+
+		} while ( key !== undefined );
+
+	} else if ( value.toArray !== undefined ) {
+
+		// ...assume THREE.Math-ish
+
+		do {
+
+			value = key[ valuePropertyName ];
+
+			if ( value !== undefined ) {
+
+				times.push( key.time );
+				value.toArray( values, values.length );
+
+			}
+
+			key = jsonKeys[ i ++ ];
+
+		} while ( key !== undefined );
+
+	} else {
+
+		// otherwise push as-is
+
+		do {
+
+			value = key[ valuePropertyName ];
+
+			if ( value !== undefined ) {
+
+				times.push( key.time );
+				values.push( value );
+
+			}
+
+			key = jsonKeys[ i ++ ];
+
+		} while ( key !== undefined );
+
+	}
+
+}
+
+/**
+ * Creates a new clip, containing only the segment of the original clip between the given frames.
+ *
+ * @param {AnimationClip} sourceClip - The values to sort.
+ * @param {string} name - The name of the clip.
+ * @param {number} startFrame - The start frame.
+ * @param {number} endFrame - The end frame.
+ * @param {number} [fps=30] - The FPS.
+ * @return {AnimationClip} The new sub clip.
+ */
+function subclip( sourceClip, name, startFrame, endFrame, fps = 30 ) {
+
+	const clip = sourceClip.clone();
+
+	clip.name = name;
+
+	const tracks = [];
+
+	for ( let i = 0; i < clip.tracks.length; ++ i ) {
+
+		const track = clip.tracks[ i ];
+		const valueSize = track.getValueSize();
+
+		const times = [];
+		const values = [];
+
+		for ( let j = 0; j < track.times.length; ++ j ) {
+
+			const frame = track.times[ j ] * fps;
+
+			if ( frame < startFrame || frame >= endFrame ) continue;
+
+			times.push( track.times[ j ] );
+
+			for ( let k = 0; k < valueSize; ++ k ) {
+
+				values.push( track.values[ j * valueSize + k ] );
+
+			}
+
+		}
+
+		if ( times.length === 0 ) continue;
+
+		track.times = convertArray( times, track.times.constructor );
+		track.values = convertArray( values, track.values.constructor );
+
+		tracks.push( track );
+
+	}
+
+	clip.tracks = tracks;
+
+	// find minimum .times value across all tracks in the trimmed clip
+
+	let minStartTime = Infinity;
+
+	for ( let i = 0; i < clip.tracks.length; ++ i ) {
+
+		if ( minStartTime > clip.tracks[ i ].times[ 0 ] ) {
+
+			minStartTime = clip.tracks[ i ].times[ 0 ];
+
+		}
+
+	}
+
+	// shift all tracks such that clip begins at t=0
+
+	for ( let i = 0; i < clip.tracks.length; ++ i ) {
+
+		clip.tracks[ i ].shift( - 1 * minStartTime );
+
+	}
+
+	clip.resetDuration();
+
+	return clip;
+
+}
+
+/**
+ * Converts the keyframes of the given animation clip to an additive format.
+ *
+ * @param {AnimationClip} targetClip - The clip to make additive.
+ * @param {number} [referenceFrame=0] - The reference frame.
+ * @param {AnimationClip} [referenceClip=targetClip] - The reference clip.
+ * @param {number} [fps=30] - The FPS.
+ * @return {AnimationClip} The updated clip which is now additive.
+ */
+function makeClipAdditive( targetClip, referenceFrame = 0, referenceClip = targetClip, fps = 30 ) {
+
+	if ( fps <= 0 ) fps = 30;
+
+	const numTracks = referenceClip.tracks.length;
+	const referenceTime = referenceFrame / fps;
+
+	// Make each track's values relative to the values at the reference frame
+	for ( let i = 0; i < numTracks; ++ i ) {
+
+		const referenceTrack = referenceClip.tracks[ i ];
+		const referenceTrackType = referenceTrack.ValueTypeName;
+
+		// Skip this track if it's non-numeric
+		if ( referenceTrackType === 'bool' || referenceTrackType === 'string' ) continue;
+
+		// Find the track in the target clip whose name and type matches the reference track
+		const targetTrack = targetClip.tracks.find( function ( track ) {
+
+			return track.name === referenceTrack.name
+				&& track.ValueTypeName === referenceTrackType;
+
+		} );
+
+		if ( targetTrack === undefined ) continue;
+
+		let referenceOffset = 0;
+		const referenceValueSize = referenceTrack.getValueSize();
+
+		if ( referenceTrack.createInterpolant.isInterpolantFactoryMethodGLTFCubicSpline ) {
+
+			referenceOffset = referenceValueSize / 3;
+
+		}
+
+		let targetOffset = 0;
+		const targetValueSize = targetTrack.getValueSize();
+
+		if ( targetTrack.createInterpolant.isInterpolantFactoryMethodGLTFCubicSpline ) {
+
+			targetOffset = targetValueSize / 3;
+
+		}
+
+		const lastIndex = referenceTrack.times.length - 1;
+		let referenceValue;
+
+		// Find the value to subtract out of the track
+		if ( referenceTime <= referenceTrack.times[ 0 ] ) {
+
+			// Reference frame is earlier than the first keyframe, so just use the first keyframe
+			const startIndex = referenceOffset;
+			const endIndex = referenceValueSize - referenceOffset;
+			referenceValue = referenceTrack.values.slice( startIndex, endIndex );
+
+		} else if ( referenceTime >= referenceTrack.times[ lastIndex ] ) {
+
+			// Reference frame is after the last keyframe, so just use the last keyframe
+			const startIndex = lastIndex * referenceValueSize + referenceOffset;
+			const endIndex = startIndex + referenceValueSize - referenceOffset;
+			referenceValue = referenceTrack.values.slice( startIndex, endIndex );
+
+		} else {
+
+			// Interpolate to the reference value
+			const interpolant = referenceTrack.createInterpolant();
+			const startIndex = referenceOffset;
+			const endIndex = referenceValueSize - referenceOffset;
+			interpolant.evaluate( referenceTime );
+			referenceValue = interpolant.resultBuffer.slice( startIndex, endIndex );
+
+		}
+
+		// Conjugate the quaternion
+		if ( referenceTrackType === 'quaternion' ) {
+
+			const referenceQuat = new Quaternion().fromArray( referenceValue ).normalize().conjugate();
+			referenceQuat.toArray( referenceValue );
+
+		}
+
+		// Subtract the reference value from all of the track values
+
+		const numTimes = targetTrack.times.length;
+		for ( let j = 0; j < numTimes; ++ j ) {
+
+			const valueStart = j * targetValueSize + targetOffset;
+
+			if ( referenceTrackType === 'quaternion' ) {
+
+				// Multiply the conjugate for quaternion track types
+				Quaternion.multiplyQuaternionsFlat(
+					targetTrack.values,
+					valueStart,
+					referenceValue,
+					0,
+					targetTrack.values,
+					valueStart
+				);
+
+			} else {
+
+				const valueEnd = targetValueSize - targetOffset * 2;
+
+				// Subtract each value for all other numeric track types
+				for ( let k = 0; k < valueEnd; ++ k ) {
+
+					targetTrack.values[ valueStart + k ] -= referenceValue[ k ];
+
+				}
+
+			}
+
+		}
+
+	}
+
+	targetClip.blendMode = AdditiveAnimationBlendMode;
+
+	return targetClip;
+
+}
+
+/**
+ * A class with various methods to assist with animations.
+ *
+ * @hideconstructor
+ */
+class AnimationUtils {
+
+	/**
+	 * r110 保留静态方法: 见顶部 arraySlice。
+	 *
+	 * @static
+	 * @param {TypedArray|Array} array - 源数组
+	 * @param {number} [from] - 起始下标
+	 * @param {number} [to] - 结束下标(不含)
+	 * @return {TypedArray|Array} 切片副本
+	 */
+	static arraySlice( array, from, to ) {
+
+		return arraySlice( array, from, to );
+
+	}
+
+	/**
+	 * Converts an array to a specific type
+	 *
+	 * @static
+	 * @param {TypedArray|Array} array - The array to convert.
+	 * @param {TypedArray.constructor} type - The constructor of a type array.
+	 * @return {TypedArray} The converted array
+	 */
+	static convertArray( array, type ) {
+
+		return convertArray( array, type );
+
+	}
+
+	/**
+	 * Returns `true` if the given object is a typed array.
+	 *
+	 * @static
+	 * @param {any} object - The object to check.
+	 * @return {boolean} Whether the given object is a typed array.
+	 */
+	static isTypedArray( object ) {
+
+		return isTypedArray( object );
+
+	}
+
+	/**
+	 * Returns an array by which times and values can be sorted.
+	 *
+	 * @static
+	 * @param {Array<number>} times - The keyframe time values.
+	 * @return {Array<number>} The array.
+	 */
+	static getKeyframeOrder( times ) {
+
+		return getKeyframeOrder( times );
+
+	}
+
+	/**
+	 * Sorts the given array by the previously computed order via `getKeyframeOrder()`.
+	 *
+	 * @static
+	 * @param {Array<number>} values - The values to sort.
+	 * @param {number} stride - The stride.
+	 * @param {Array<number>} order - The sort order.
+	 * @return {Array<number>} The sorted values.
+	 */
+	static sortedArray( values, stride, order ) {
+
+		return sortedArray( values, stride, order );
+
+	}
+
+	/**
+	 * Used for parsing AOS keyframe formats.
+	 *
+	 * @static
+	 * @param {Array<number>} jsonKeys - A list of JSON keyframes.
+	 * @param {Array<number>} times - This array will be filled with keyframe times by this method.
+	 * @param {Array<number>} values - This array will be filled with keyframe values by this method.
+	 * @param {string} valuePropertyName - The name of the property to use.
+	 */
+	static flattenJSON( jsonKeys, times, values, valuePropertyName ) {
+
+		flattenJSON( jsonKeys, times, values, valuePropertyName );
+
+	}
+
+	/**
+	 * Creates a new clip, containing only the segment of the original clip between the given frames.
+	 *
+	 * @static
+	 * @param {AnimationClip} sourceClip - The values to sort.
+	 * @param {string} name - The name of the clip.
+	 * @param {number} startFrame - The start frame.
+	 * @param {number} endFrame - The end frame.
+	 * @param {number} [fps=30] - The FPS.
+	 * @return {AnimationClip} The new sub clip.
+	 */
+	static subclip( sourceClip, name, startFrame, endFrame, fps = 30 ) {
+
+		return subclip( sourceClip, name, startFrame, endFrame, fps );
+
+	}
+
+	/**
+	 * Converts the keyframes of the given animation clip to an additive format.
+	 *
+	 * @static
+	 * @param {AnimationClip} targetClip - The clip to make additive.
+	 * @param {number} [referenceFrame=0] - The reference frame.
+	 * @param {AnimationClip} [referenceClip=targetClip] - The reference clip.
+	 * @param {number} [fps=30] - The FPS.
+	 * @return {AnimationClip} The updated clip which is now additive.
+	 */
+	static makeClipAdditive( targetClip, referenceFrame = 0, referenceClip = targetClip, fps = 30 ) {
+
+		return makeClipAdditive( targetClip, referenceFrame, referenceClip, fps );
+
+	}
+
+}
 
 /**
  * Abstract base class of interpolants over parametric samples.
@@ -36757,26 +37371,405 @@ VectorKeyframeTrack.prototype = Object.assign( Object.create( KeyframeTrack.prot
 
 } );
 
+// backport from r185: clip 携带 blendMode(升级差距分析说明 3.0 §2.1)
+
+var generateUUID = _Math.generateUUID;
+
 /**
- *
- * Reusable set of Tracks that represent an animation.
- *
- * @author Ben Houston / http://clara.io/
- * @author David Sarno / http://lighthaus.us/
+ * A reusable set of keyframe tracks which represent an animation.
  */
+class AnimationClip {
 
-function AnimationClip( name, duration, tracks ) {
+	/**
+	 * Constructs a new animation clip.
+	 *
+	 * Note: Instead of instantiating an AnimationClip directly with the constructor, you can
+	 * use the static interface of this class for creating clips. In most cases though, animation clips
+	 * will automatically be created by loaders when importing animated 3D assets.
+	 *
+	 * @param {string} [name=''] - The clip's name.
+	 * @param {number} [duration=-1] - The clip's duration in seconds. If a negative value is passed,
+	 * the duration will be calculated from the passed keyframes.
+	 * @param {Array<KeyframeTrack>} tracks - An array of keyframe tracks.
+	 * @param {(NormalAnimationBlendMode|AdditiveAnimationBlendMode)} [blendMode=NormalAnimationBlendMode] - Defines how the animation
+	 * is blended/combined when two or more animations are simultaneously played.
+	 */
+	constructor( name = '', duration = - 1, tracks = [], blendMode = NormalAnimationBlendMode ) {
 
-	this.name = name;
-	this.tracks = tracks;
-	this.duration = ( duration !== undefined ) ? duration : - 1;
+		/**
+		 * The clip's name.
+		 *
+		 * @type {string}
+		 */
+		this.name = name;
 
-	this.uuid = _Math.generateUUID();
+		/**
+		 *  An array of keyframe tracks.
+		 *
+		 * @type {Array<KeyframeTrack>}
+		 */
+		this.tracks = tracks;
 
-	// this means it should figure out its duration by scanning the tracks
-	if ( this.duration < 0 ) {
+		/**
+		 * The clip's duration in seconds.
+		 *
+		 * @type {number}
+		 */
+		this.duration = duration;
 
-		this.resetDuration();
+		/**
+		 * Defines how the animation is blended/combined when two or more animations
+		 * are simultaneously played.
+		 *
+		 * @type {(NormalAnimationBlendMode|AdditiveAnimationBlendMode)}
+		 */
+		this.blendMode = blendMode;
+
+		/**
+		 * The UUID of the animation clip.
+		 *
+		 * @type {string}
+		 * @readonly
+		 */
+		this.uuid = generateUUID();
+
+		/**
+		 * An object that can be used to store custom data about the animation clip.
+		 * It should not hold references to functions as these will not be cloned.
+		 *
+		 * @type {Object}
+		 */
+		this.userData = {};
+
+		// this means it should figure out its duration by scanning the tracks
+		if ( this.duration < 0 ) {
+
+			this.resetDuration();
+
+		}
+
+	}
+
+	/**
+	 * Factory method for creating an animation clip from the given JSON.
+	 *
+	 * @static
+	 * @param {Object} json - The serialized animation clip.
+	 * @return {AnimationClip} The new animation clip.
+	 */
+	static parse( json ) {
+
+		const tracks = [],
+			jsonTracks = json.tracks,
+			frameTime = 1.0 / ( json.fps || 1.0 );
+
+		for ( let i = 0, n = jsonTracks.length; i !== n; ++ i ) {
+
+			tracks.push( parseKeyframeTrack( jsonTracks[ i ] ).scale( frameTime ) );
+
+		}
+
+		const clip = new this( json.name, json.duration, tracks, json.blendMode );
+		clip.uuid = json.uuid;
+
+		clip.userData = JSON.parse( json.userData || '{}' );
+
+		return clip;
+
+	}
+
+	/**
+	 * Serializes the given animation clip into JSON.
+	 *
+	 * @static
+	 * @param {AnimationClip} clip - The animation clip to serialize.
+	 * @return {Object} The JSON object.
+	 */
+	static toJSON( clip ) {
+
+		const tracks = [],
+			clipTracks = clip.tracks;
+
+		const json = {
+
+			'name': clip.name,
+			'duration': clip.duration,
+			'tracks': tracks,
+			'uuid': clip.uuid,
+			'blendMode': clip.blendMode,
+			'userData': JSON.stringify( clip.userData ),
+
+		};
+
+		for ( let i = 0, n = clipTracks.length; i !== n; ++ i ) {
+
+			tracks.push( KeyframeTrack.toJSON( clipTracks[ i ] ) );
+
+		}
+
+		return json;
+
+	}
+
+	/**
+	 * Returns a new animation clip from the passed morph targets array of a
+	 * geometry, taking a name and the number of frames per second.
+	 *
+	 * Note: The fps parameter is required, but the animation speed can be
+	 * overridden via {@link AnimationAction#setDuration}.
+	 *
+	 * @static
+	 * @param {string} name - The name of the animation clip.
+	 * @param {Array<Object>} morphTargetSequence - A sequence of morph targets.
+	 * @param {number} fps - The Frames-Per-Second value.
+	 * @param {boolean} noLoop - Whether the clip should be no loop or not.
+	 * @return {AnimationClip} The new animation clip.
+	 */
+	static CreateFromMorphTargetSequence( name, morphTargetSequence, fps, noLoop ) {
+
+		const numMorphTargets = morphTargetSequence.length;
+		const tracks = [];
+
+		for ( let i = 0; i < numMorphTargets; i ++ ) {
+
+			let times = [];
+			let values = [];
+
+			times.push(
+				( i + numMorphTargets - 1 ) % numMorphTargets,
+				i,
+				( i + 1 ) % numMorphTargets );
+
+			values.push( 0, 1, 0 );
+
+			const order = getKeyframeOrder( times );
+			times = sortedArray( times, 1, order );
+			values = sortedArray( values, 1, order );
+
+			// if there is a key at the first frame, duplicate it as the
+			// last frame as well for perfect loop.
+			if ( ! noLoop && times[ 0 ] === 0 ) {
+
+				times.push( numMorphTargets );
+				values.push( values[ 0 ] );
+
+			}
+
+			tracks.push(
+				new NumberKeyframeTrack(
+					'.morphTargetInfluences[' + morphTargetSequence[ i ].name + ']',
+					times, values
+				).scale( 1.0 / fps ) );
+
+		}
+
+		return new this( name, - 1, tracks );
+
+	}
+
+	/**
+	 * Searches for an animation clip by name, taking as its first parameter
+	 * either an array of clips, or a mesh or geometry that contains an
+	 * array named "animations" property.
+	 *
+	 * @static
+	 * @param {(Array<AnimationClip>|Object3D)} objectOrClipArray - The array or object to search through.
+	 * @param {string} name - The name to search for.
+	 * @return {?AnimationClip} The found animation clip. Returns `null` if no clip has been found.
+	 */
+	static findByName( objectOrClipArray, name ) {
+
+		let clipArray = objectOrClipArray;
+
+		if ( ! Array.isArray( objectOrClipArray ) ) {
+
+			const o = objectOrClipArray;
+			clipArray = o.geometry && o.geometry.animations || o.animations;
+
+		}
+
+		for ( let i = 0; i < clipArray.length; i ++ ) {
+
+			if ( clipArray[ i ].name === name ) {
+
+				return clipArray[ i ];
+
+			}
+
+		}
+
+		return null;
+
+	}
+
+	/**
+	 * Returns an array of new AnimationClips created from the morph target
+	 * sequences of a geometry, trying to sort morph target names into
+	 * animation-group-based patterns like "Walk_001, Walk_002, Run_001, Run_002...".
+	 *
+	 * See {@link MD2Loader#parse} as an example for how the method should be used.
+	 *
+	 * @static
+	 * @param {Array<Object>} morphTargets - A sequence of morph targets.
+	 * @param {number} fps - The Frames-Per-Second value.
+	 * @param {boolean} noLoop - Whether the clip should be no loop or not.
+	 * @return {Array<AnimationClip>} An array of new animation clips.
+	 */
+	static CreateClipsFromMorphTargetSequences( morphTargets, fps, noLoop ) {
+
+		const animationToMorphTargets = {};
+
+		// tested with https://regex101.com/ on trick sequences
+		// such flamingo_flyA_003, flamingo_run1_003, crdeath0059
+		const pattern = /^([\w-]*?)([\d]+)$/;
+
+		// sort morph target names into animation groups based
+		// patterns like Walk_001, Walk_002, Run_001, Run_002
+		for ( let i = 0, il = morphTargets.length; i < il; i ++ ) {
+
+			const morphTarget = morphTargets[ i ];
+			const parts = morphTarget.name.match( pattern );
+
+			if ( parts && parts.length > 1 ) {
+
+				const name = parts[ 1 ];
+
+				let animationMorphTargets = animationToMorphTargets[ name ];
+
+				if ( ! animationMorphTargets ) {
+
+					animationToMorphTargets[ name ] = animationMorphTargets = [];
+
+				}
+
+				animationMorphTargets.push( morphTarget );
+
+			}
+
+		}
+
+		const clips = [];
+
+		for ( const name in animationToMorphTargets ) {
+
+			clips.push( this.CreateFromMorphTargetSequence( name, animationToMorphTargets[ name ], fps, noLoop ) );
+
+		}
+
+		return clips;
+
+	}
+
+	/**
+	 * Sets the duration of this clip to the duration of its longest keyframe track.
+	 *
+	 * @return {AnimationClip} A reference to this animation clip.
+	 */
+	resetDuration() {
+
+		const tracks = this.tracks;
+		let duration = 0;
+
+		for ( let i = 0, n = tracks.length; i !== n; ++ i ) {
+
+			const track = this.tracks[ i ];
+
+			duration = Math.max( duration, track.times[ track.times.length - 1 ] );
+
+		}
+
+		this.duration = duration;
+
+		return this;
+
+	}
+
+	/**
+	 * Trims all tracks to the clip's duration.
+	 *
+	 * @return {AnimationClip} A reference to this animation clip.
+	 */
+	trim() {
+
+		for ( let i = 0; i < this.tracks.length; i ++ ) {
+
+			this.tracks[ i ].trim( 0, this.duration );
+
+		}
+
+		return this;
+
+	}
+
+	/**
+	 * Performs minimal validation on each track in the clip. Returns `true` if all
+	 * tracks are valid.
+	 *
+	 * @return {boolean} Whether the clip's keyframes are valid or not.
+	 */
+	validate() {
+
+		let valid = true;
+
+		for ( let i = 0; i < this.tracks.length; i ++ ) {
+
+			valid = valid && this.tracks[ i ].validate();
+
+		}
+
+		return valid;
+
+	}
+
+	/**
+	 * Optimizes each track by removing equivalent sequential keys (which are
+	 * common in morph target sequences).
+	 *
+	 * @return {AnimationClip} A reference to this animation clip.
+	 */
+	optimize() {
+
+		for ( let i = 0; i < this.tracks.length; i ++ ) {
+
+			this.tracks[ i ].optimize();
+
+		}
+
+		return this;
+
+	}
+
+	/**
+	 * Returns a new animation clip with copied values from this instance.
+	 *
+	 * @return {AnimationClip} A clone of this instance.
+	 */
+	clone() {
+
+		const tracks = [];
+
+		for ( let i = 0; i < this.tracks.length; i ++ ) {
+
+			tracks.push( this.tracks[ i ].clone() );
+
+		}
+
+		const clip = new this.constructor( this.name, this.duration, tracks, this.blendMode );
+
+		clip.userData = JSON.parse( JSON.stringify( this.userData ) );
+
+		return clip;
+
+	}
+
+	/**
+	 * Serializes this animation clip into JSON.
+	 *
+	 * @return {Object} The JSON object.
+	 */
+	toJSON() {
+
+		return this.constructor.toJSON( this );
 
 	}
 
@@ -36832,13 +37825,13 @@ function parseKeyframeTrack( json ) {
 
 	}
 
-	var trackType = getTrackTypeForValueTypeName( json.type );
+	const trackType = getTrackTypeForValueTypeName( json.type );
 
 	if ( json.times === undefined ) {
 
-		var times = [], values = [];
+		const times = [], values = [];
 
-		AnimationUtils.flattenJSON( json.keys, times, values, 'value' );
+		flattenJSON( json.keys, times, values, 'value' );
 
 		json.times = times;
 		json.values = values;
@@ -36858,359 +37851,6 @@ function parseKeyframeTrack( json ) {
 	}
 
 }
-
-Object.assign( AnimationClip, {
-
-	parse: function ( json ) {
-
-		var tracks = [],
-			jsonTracks = json.tracks,
-			frameTime = 1.0 / ( json.fps || 1.0 );
-
-		for ( var i = 0, n = jsonTracks.length; i !== n; ++ i ) {
-
-			tracks.push( parseKeyframeTrack( jsonTracks[ i ] ).scale( frameTime ) );
-
-		}
-
-		return new AnimationClip( json.name, json.duration, tracks );
-
-	},
-
-	toJSON: function ( clip ) {
-
-		var tracks = [],
-			clipTracks = clip.tracks;
-
-		var json = {
-
-			'name': clip.name,
-			'duration': clip.duration,
-			'tracks': tracks,
-			'uuid': clip.uuid
-
-		};
-
-		for ( var i = 0, n = clipTracks.length; i !== n; ++ i ) {
-
-			tracks.push( KeyframeTrack.toJSON( clipTracks[ i ] ) );
-
-		}
-
-		return json;
-
-	},
-
-	CreateFromMorphTargetSequence: function ( name, morphTargetSequence, fps, noLoop ) {
-
-		var numMorphTargets = morphTargetSequence.length;
-		var tracks = [];
-
-		for ( var i = 0; i < numMorphTargets; i ++ ) {
-
-			var times = [];
-			var values = [];
-
-			times.push(
-				( i + numMorphTargets - 1 ) % numMorphTargets,
-				i,
-				( i + 1 ) % numMorphTargets );
-
-			values.push( 0, 1, 0 );
-
-			var order = AnimationUtils.getKeyframeOrder( times );
-			times = AnimationUtils.sortedArray( times, 1, order );
-			values = AnimationUtils.sortedArray( values, 1, order );
-
-			// if there is a key at the first frame, duplicate it as the
-			// last frame as well for perfect loop.
-			if ( ! noLoop && times[ 0 ] === 0 ) {
-
-				times.push( numMorphTargets );
-				values.push( values[ 0 ] );
-
-			}
-
-			tracks.push(
-				new NumberKeyframeTrack(
-					'.morphTargetInfluences[' + morphTargetSequence[ i ].name + ']',
-					times, values
-				).scale( 1.0 / fps ) );
-
-		}
-
-		return new AnimationClip( name, - 1, tracks );
-
-	},
-
-	findByName: function ( objectOrClipArray, name ) {
-
-		var clipArray = objectOrClipArray;
-
-		if ( ! Array.isArray( objectOrClipArray ) ) {
-
-			var o = objectOrClipArray;
-			clipArray = o.geometry && o.geometry.animations || o.animations;
-
-		}
-
-		for ( var i = 0; i < clipArray.length; i ++ ) {
-
-			if ( clipArray[ i ].name === name ) {
-
-				return clipArray[ i ];
-
-			}
-
-		}
-
-		return null;
-
-	},
-
-	CreateClipsFromMorphTargetSequences: function ( morphTargets, fps, noLoop ) {
-
-		var animationToMorphTargets = {};
-
-		// tested with https://regex101.com/ on trick sequences
-		// such flamingo_flyA_003, flamingo_run1_003, crdeath0059
-		var pattern = /^([\w-]*?)([\d]+)$/;
-
-		// sort morph target names into animation groups based
-		// patterns like Walk_001, Walk_002, Run_001, Run_002
-		for ( var i = 0, il = morphTargets.length; i < il; i ++ ) {
-
-			var morphTarget = morphTargets[ i ];
-			var parts = morphTarget.name.match( pattern );
-
-			if ( parts && parts.length > 1 ) {
-
-				var name = parts[ 1 ];
-
-				var animationMorphTargets = animationToMorphTargets[ name ];
-				if ( ! animationMorphTargets ) {
-
-					animationToMorphTargets[ name ] = animationMorphTargets = [];
-
-				}
-
-				animationMorphTargets.push( morphTarget );
-
-			}
-
-		}
-
-		var clips = [];
-
-		for ( var name in animationToMorphTargets ) {
-
-			clips.push( AnimationClip.CreateFromMorphTargetSequence( name, animationToMorphTargets[ name ], fps, noLoop ) );
-
-		}
-
-		return clips;
-
-	},
-
-	// parse the animation.hierarchy format
-	parseAnimation: function ( animation, bones ) {
-
-		if ( ! animation ) {
-
-			console.error( 'THREE.AnimationClip: No animation in JSONLoader data.' );
-			return null;
-
-		}
-
-		var addNonemptyTrack = function ( trackType, trackName, animationKeys, propertyName, destTracks ) {
-
-			// only return track if there are actually keys.
-			if ( animationKeys.length !== 0 ) {
-
-				var times = [];
-				var values = [];
-
-				AnimationUtils.flattenJSON( animationKeys, times, values, propertyName );
-
-				// empty keys are filtered out, so check again
-				if ( times.length !== 0 ) {
-
-					destTracks.push( new trackType( trackName, times, values ) );
-
-				}
-
-			}
-
-		};
-
-		var tracks = [];
-
-		var clipName = animation.name || 'default';
-		// automatic length determination in AnimationClip.
-		var duration = animation.length || - 1;
-		var fps = animation.fps || 30;
-
-		var hierarchyTracks = animation.hierarchy || [];
-
-		for ( var h = 0; h < hierarchyTracks.length; h ++ ) {
-
-			var animationKeys = hierarchyTracks[ h ].keys;
-
-			// skip empty tracks
-			if ( ! animationKeys || animationKeys.length === 0 ) continue;
-
-			// process morph targets
-			if ( animationKeys[ 0 ].morphTargets ) {
-
-				// figure out all morph targets used in this track
-				var morphTargetNames = {};
-
-				for ( var k = 0; k < animationKeys.length; k ++ ) {
-
-					if ( animationKeys[ k ].morphTargets ) {
-
-						for ( var m = 0; m < animationKeys[ k ].morphTargets.length; m ++ ) {
-
-							morphTargetNames[ animationKeys[ k ].morphTargets[ m ] ] = - 1;
-
-						}
-
-					}
-
-				}
-
-				// create a track for each morph target with all zero
-				// morphTargetInfluences except for the keys in which
-				// the morphTarget is named.
-				for ( var morphTargetName in morphTargetNames ) {
-
-					var times = [];
-					var values = [];
-
-					for ( var m = 0; m !== animationKeys[ k ].morphTargets.length; ++ m ) {
-
-						var animationKey = animationKeys[ k ];
-
-						times.push( animationKey.time );
-						values.push( ( animationKey.morphTarget === morphTargetName ) ? 1 : 0 );
-
-					}
-
-					tracks.push( new NumberKeyframeTrack( '.morphTargetInfluence[' + morphTargetName + ']', times, values ) );
-
-				}
-
-				duration = morphTargetNames.length * ( fps || 1.0 );
-
-			} else {
-
-				// ...assume skeletal animation
-
-				var boneName = '.bones[' + bones[ h ].name + ']';
-
-				addNonemptyTrack(
-					VectorKeyframeTrack, boneName + '.position',
-					animationKeys, 'pos', tracks );
-
-				addNonemptyTrack(
-					QuaternionKeyframeTrack, boneName + '.quaternion',
-					animationKeys, 'rot', tracks );
-
-				addNonemptyTrack(
-					VectorKeyframeTrack, boneName + '.scale',
-					animationKeys, 'scl', tracks );
-
-			}
-
-		}
-
-		if ( tracks.length === 0 ) {
-
-			return null;
-
-		}
-
-		var clip = new AnimationClip( clipName, duration, tracks );
-
-		return clip;
-
-	}
-
-} );
-
-Object.assign( AnimationClip.prototype, {
-
-	resetDuration: function () {
-
-		var tracks = this.tracks, duration = 0;
-
-		for ( var i = 0, n = tracks.length; i !== n; ++ i ) {
-
-			var track = this.tracks[ i ];
-
-			duration = Math.max( duration, track.times[ track.times.length - 1 ] );
-
-		}
-
-		this.duration = duration;
-
-		return this;
-
-	},
-
-	trim: function () {
-
-		for ( var i = 0; i < this.tracks.length; i ++ ) {
-
-			this.tracks[ i ].trim( 0, this.duration );
-
-		}
-
-		return this;
-
-	},
-
-	validate: function () {
-
-		var valid = true;
-
-		for ( var i = 0; i < this.tracks.length; i ++ ) {
-
-			valid = valid && this.tracks[ i ].validate();
-
-		}
-
-		return valid;
-
-	},
-
-	optimize: function () {
-
-		for ( var i = 0; i < this.tracks.length; i ++ ) {
-
-			this.tracks[ i ].optimize();
-
-		}
-
-		return this;
-
-	},
-
-	clone: function () {
-
-		var tracks = [];
-
-		for ( var i = 0; i < this.tracks.length; i ++ ) {
-
-			tracks.push( this.tracks[ i ].clone() );
-
-		}
-
-		return new AnimationClip( this.name, this.duration, tracks );
-
-	}
-
-} );
 
 /**
  * @author mrdoob / http://mrdoob.com/
@@ -44312,81 +44952,151 @@ Object.assign( AudioAnalyser.prototype, {
 
 } );
 
+// backport from r185: additive 动画混合(升级差距分析说明 3.0 §2.1)
+
 /**
- *
- * Buffered scene graph property that allows weighted accumulation.
- *
- *
- * @author Ben Houston / http://clara.io/
- * @author David Sarno / http://lighthaus.us/
- * @author tschw
+ * Buffered scene graph property that allows weighted accumulation; used internally.
  */
+class PropertyMixer {
 
-function PropertyMixer( binding, typeName, valueSize ) {
+	/**
+	 * Constructs a new property mixer.
+	 *
+	 * @param {PropertyBinding} binding - The property binding.
+	 * @param {string} typeName - The keyframe track type name.
+	 * @param {number} valueSize - The keyframe track value size.
+	 */
+	constructor( binding, typeName, valueSize ) {
 
-	this.binding = binding;
-	this.valueSize = valueSize;
+		/**
+		 * The property binding.
+		 *
+		 * @type {PropertyBinding}
+		 */
+		this.binding = binding;
 
-	var bufferType = Float64Array,
-		mixFunction;
+		/**
+		 * The keyframe track value size.
+		 *
+		 * @type {number}
+		 */
+		this.valueSize = valueSize;
 
-	switch ( typeName ) {
+		let mixFunction,
+			mixFunctionAdditive,
+			setIdentity;
 
-		case 'quaternion':
-			mixFunction = this._slerp;
-			break;
+		// buffer layout: [ incoming | accu0 | accu1 | orig | addAccu | (optional work) ]
+		//
+		// interpolators can use .buffer as their .result
+		// the data then goes to 'incoming'
+		//
+		// 'accu0' and 'accu1' are used frame-interleaved for
+		// the cumulative result and are compared to detect
+		// changes
+		//
+		// 'orig' stores the original state of the property
+		//
+		// 'add' is used for additive cumulative results
+		//
+		// 'work' is optional and is only present for quaternion types. It is used
+		// to store intermediate quaternion multiplication results
 
-		case 'string':
-		case 'bool':
-			bufferType = Array;
-			mixFunction = this._select;
-			break;
+		switch ( typeName ) {
 
-		default:
-			mixFunction = this._lerp;
+			case 'quaternion':
+				mixFunction = this._slerp;
+				mixFunctionAdditive = this._slerpAdditive;
+				setIdentity = this._setAdditiveIdentityQuaternion;
+
+				this.buffer = new Float64Array( valueSize * 6 );
+				this._workIndex = 5;
+				break;
+
+			case 'string':
+			case 'bool':
+				mixFunction = this._select;
+
+				// Use the regular mix function and for additive on these types,
+				// additive is not relevant for non-numeric types
+				mixFunctionAdditive = this._select;
+
+				setIdentity = this._setAdditiveIdentityOther;
+
+				this.buffer = new Array( valueSize * 5 );
+				break;
+
+			default:
+				mixFunction = this._lerp;
+				mixFunctionAdditive = this._lerpAdditive;
+				setIdentity = this._setAdditiveIdentityNumeric;
+
+				this.buffer = new Float64Array( valueSize * 5 );
+
+		}
+
+		this._mixBufferRegion = mixFunction;
+		this._mixBufferRegionAdditive = mixFunctionAdditive;
+		this._setIdentity = setIdentity;
+		this._origIndex = 3;
+		this._addIndex = 4;
+
+		/**
+		 * Accumulated weight of the property binding.
+		 *
+		 * @type {number}
+		 * @default 0
+		 */
+		this.cumulativeWeight = 0;
+
+		/**
+		 * Accumulated additive weight of the property binding.
+		 *
+		 * @type {number}
+		 * @default 0
+		 */
+		this.cumulativeWeightAdditive = 0;
+
+		/**
+		 * Number of active keyframe tracks currently using this property binding.
+		 *
+		 * @type {number}
+		 * @default 0
+		 */
+		this.useCount = 0;
+
+		/**
+		 * Number of keyframe tracks referencing this property binding.
+		 *
+		 * @type {number}
+		 * @default 0
+		 */
+		this.referenceCount = 0;
 
 	}
 
-	this.buffer = new bufferType( valueSize * 4 );
-	// layout: [ incoming | accu0 | accu1 | orig ]
-	//
-	// interpolators can use .buffer as their .result
-	// the data then goes to 'incoming'
-	//
-	// 'accu0' and 'accu1' are used frame-interleaved for
-	// the cumulative result and are compared to detect
-	// changes
-	//
-	// 'orig' stores the original state of the property
-
-	this._mixBufferRegion = mixFunction;
-
-	this.cumulativeWeight = 0;
-
-	this.useCount = 0;
-	this.referenceCount = 0;
-
-}
-
-Object.assign( PropertyMixer.prototype, {
-
-	// accumulate data in the 'incoming' region into 'accu<i>'
-	accumulate: function ( accuIndex, weight ) {
+	/**
+	 * Accumulates data in the `incoming` region into `accu<i>`.
+	 *
+	 * @param {number} accuIndex - The accumulation index.
+	 * @param {number} weight - The weight.
+	 */
+	accumulate( accuIndex, weight ) {
 
 		// note: happily accumulating nothing when weight = 0, the caller knows
 		// the weight and shouldn't have made the call in the first place
 
-		var buffer = this.buffer,
+		const buffer = this.buffer,
 			stride = this.valueSize,
-			offset = accuIndex * stride + stride,
+			offset = accuIndex * stride + stride;
 
-			currentWeight = this.cumulativeWeight;
+		let currentWeight = this.cumulativeWeight;
 
 		if ( currentWeight === 0 ) {
 
 			// accuN := incoming * weight
 
-			for ( var i = 0; i !== stride; ++ i ) {
+			for ( let i = 0; i !== stride; ++ i ) {
 
 				buffer[ offset + i ] = buffer[ i ];
 
@@ -44399,40 +45109,80 @@ Object.assign( PropertyMixer.prototype, {
 			// accuN := accuN + incoming * weight
 
 			currentWeight += weight;
-			var mix = weight / currentWeight;
+			const mix = weight / currentWeight;
 			this._mixBufferRegion( buffer, offset, 0, mix, stride );
 
 		}
 
 		this.cumulativeWeight = currentWeight;
 
-	},
+	}
 
-	// apply the state of 'accu<i>' to the binding when accus differ
-	apply: function ( accuIndex ) {
+	/**
+	 * Accumulates data in the `incoming` region into `add`.
+	 *
+	 * @param {number} weight - The weight.
+	 */
+	accumulateAdditive( weight ) {
 
-		var stride = this.valueSize,
+		const buffer = this.buffer,
+			stride = this.valueSize,
+			offset = stride * this._addIndex;
+
+		if ( this.cumulativeWeightAdditive === 0 ) {
+
+			// add = identity
+
+			this._setIdentity();
+
+		}
+
+		// add := add + incoming * weight
+
+		this._mixBufferRegionAdditive( buffer, offset, 0, weight, stride );
+		this.cumulativeWeightAdditive += weight;
+
+	}
+
+	/**
+	 * Applies the state of `accu<i>` to the binding when accus differ.
+	 *
+	 * @param {number} accuIndex - The accumulation index.
+	 */
+	apply( accuIndex ) {
+
+		const stride = this.valueSize,
 			buffer = this.buffer,
 			offset = accuIndex * stride + stride,
 
 			weight = this.cumulativeWeight,
+			weightAdditive = this.cumulativeWeightAdditive,
 
 			binding = this.binding;
 
 		this.cumulativeWeight = 0;
+		this.cumulativeWeightAdditive = 0;
 
 		if ( weight < 1 ) {
 
 			// accuN := accuN + original * ( 1 - cumulativeWeight )
 
-			var originalValueOffset = stride * 3;
+			const originalValueOffset = stride * this._origIndex;
 
 			this._mixBufferRegion(
 				buffer, offset, originalValueOffset, 1 - weight, stride );
 
 		}
 
-		for ( var i = stride, e = stride + stride; i !== e; ++ i ) {
+		if ( weightAdditive > 0 ) {
+
+			// accuN := accuN + additive accuN
+
+			this._mixBufferRegionAdditive( buffer, offset, this._addIndex * stride, 1, stride );
+
+		}
+
+		for ( let i = stride, e = stride + stride; i !== e; ++ i ) {
 
 			if ( buffer[ i ] !== buffer[ i + stride ] ) {
 
@@ -44445,47 +45195,91 @@ Object.assign( PropertyMixer.prototype, {
 
 		}
 
-	},
+	}
 
-	// remember the state of the bound property and copy it to both accus
-	saveOriginalState: function () {
 
-		var binding = this.binding;
+	/**
+	 * Remembers the state of the bound property and copy it to both accus.
+	 */
+	saveOriginalState() {
 
-		var buffer = this.buffer,
+		const binding = this.binding;
+
+		const buffer = this.buffer,
 			stride = this.valueSize,
 
-			originalValueOffset = stride * 3;
+			originalValueOffset = stride * this._origIndex;
 
 		binding.getValue( buffer, originalValueOffset );
 
 		// accu[0..1] := orig -- initially detect changes against the original
-		for ( var i = stride, e = originalValueOffset; i !== e; ++ i ) {
+		for ( let i = stride, e = originalValueOffset; i !== e; ++ i ) {
 
 			buffer[ i ] = buffer[ originalValueOffset + ( i % stride ) ];
 
 		}
 
+		// Add to identity for additive
+		this._setIdentity();
+
 		this.cumulativeWeight = 0;
+		this.cumulativeWeightAdditive = 0;
 
-	},
+	}
 
-	// apply the state previously taken via 'saveOriginalState' to the binding
-	restoreOriginalState: function () {
+	/**
+	 * Applies the state previously taken via {@link PropertyMixer#saveOriginalState} to the binding.
+	 */
+	restoreOriginalState() {
 
-		var originalValueOffset = this.valueSize * 3;
+		const originalValueOffset = this.valueSize * 3;
 		this.binding.setValue( this.buffer, originalValueOffset );
 
-	},
+	}
+
+	// internals
+
+	_setAdditiveIdentityNumeric() {
+
+		const startIndex = this._addIndex * this.valueSize;
+		const endIndex = startIndex + this.valueSize;
+
+		for ( let i = startIndex; i < endIndex; i ++ ) {
+
+			this.buffer[ i ] = 0;
+
+		}
+
+	}
+
+	_setAdditiveIdentityQuaternion() {
+
+		this._setAdditiveIdentityNumeric();
+		this.buffer[ this._addIndex * this.valueSize + 3 ] = 1;
+
+	}
+
+	_setAdditiveIdentityOther() {
+
+		const startIndex = this._origIndex * this.valueSize;
+		const targetIndex = this._addIndex * this.valueSize;
+
+		for ( let i = 0; i < this.valueSize; i ++ ) {
+
+			this.buffer[ targetIndex + i ] = this.buffer[ startIndex + i ];
+
+		}
+
+	}
 
 
 	// mix functions
 
-	_select: function ( buffer, dstOffset, srcOffset, t, stride ) {
+	_select( buffer, dstOffset, srcOffset, t, stride ) {
 
 		if ( t >= 0.5 ) {
 
-			for ( var i = 0; i !== stride; ++ i ) {
+			for ( let i = 0; i !== stride; ++ i ) {
 
 				buffer[ dstOffset + i ] = buffer[ srcOffset + i ];
 
@@ -44493,21 +45287,33 @@ Object.assign( PropertyMixer.prototype, {
 
 		}
 
-	},
+	}
 
-	_slerp: function ( buffer, dstOffset, srcOffset, t ) {
+	_slerp( buffer, dstOffset, srcOffset, t ) {
 
 		Quaternion.slerpFlat( buffer, dstOffset, buffer, dstOffset, buffer, srcOffset, t );
 
-	},
+	}
 
-	_lerp: function ( buffer, dstOffset, srcOffset, t, stride ) {
+	_slerpAdditive( buffer, dstOffset, srcOffset, t, stride ) {
 
-		var s = 1 - t;
+		const workOffset = this._workIndex * stride;
 
-		for ( var i = 0; i !== stride; ++ i ) {
+		// Store result in intermediate buffer offset
+		Quaternion.multiplyQuaternionsFlat( buffer, workOffset, buffer, dstOffset, buffer, srcOffset );
 
-			var j = dstOffset + i;
+		// Slerp to the intermediate result
+		Quaternion.slerpFlat( buffer, dstOffset, buffer, dstOffset, buffer, workOffset, t );
+
+	}
+
+	_lerp( buffer, dstOffset, srcOffset, t, stride ) {
+
+		const s = 1 - t;
+
+		for ( let i = 0; i !== stride; ++ i ) {
+
+			const j = dstOffset + i;
 
 			buffer[ j ] = buffer[ j ] * s + buffer[ srcOffset + i ] * t;
 
@@ -44515,7 +45321,19 @@ Object.assign( PropertyMixer.prototype, {
 
 	}
 
-} );
+	_lerpAdditive( buffer, dstOffset, srcOffset, t, stride ) {
+
+		for ( let i = 0; i !== stride; ++ i ) {
+
+			const j = dstOffset + i;
+
+			buffer[ j ] = buffer[ j ] + buffer[ srcOffset + i ] * t;
+
+		}
+
+	}
+
+}
 
 /**
  *
@@ -45606,103 +46424,208 @@ Object.assign( AnimationObjectGroup.prototype, {
 
 } );
 
+// backport from r185: 构造函数第 4 参 blendMode, _update 内按 blendMode 分派
+
 /**
- *
- * Action provided by AnimationMixer for scheduling clip playback on specific
- * objects.
- *
- * @author Ben Houston / http://clara.io/
- * @author David Sarno / http://lighthaus.us/
- * @author tschw
- *
+ * An instance of `AnimationAction` schedules the playback of an animation which is
+ * stored in {@link AnimationClip}.
  */
+class AnimationAction {
 
-function AnimationAction( mixer, clip, localRoot ) {
+	/**
+	 * Constructs a new animation action.
+	 *
+	 * @param {AnimationMixer} mixer - The mixer that is controlled by this action.
+	 * @param {AnimationClip} clip - The animation clip that holds the actual keyframes.
+	 * @param {?Object3D} [localRoot=null] - The root object on which this action is performed.
+	 * @param {(NormalAnimationBlendMode|AdditiveAnimationBlendMode)} [blendMode] - The blend mode.
+	 */
+	constructor( mixer, clip, localRoot = null, blendMode = clip.blendMode ) {
 
-	this._mixer = mixer;
-	this._clip = clip;
-	this._localRoot = localRoot || null;
+		this._mixer = mixer;
+		this._clip = clip;
+		this._localRoot = localRoot;
 
-	var tracks = clip.tracks,
-		nTracks = tracks.length,
-		interpolants = new Array( nTracks );
+		/**
+		 * Defines how the animation is blended/combined when two or more animations
+		 * are simultaneously played.
+		 *
+		 * @type {(NormalAnimationBlendMode|AdditiveAnimationBlendMode)}
+		 */
+		this.blendMode = blendMode;
 
-	var interpolantSettings = {
-		endingStart: ZeroCurvatureEnding,
-		endingEnd: ZeroCurvatureEnding
-	};
+		const tracks = clip.tracks,
+			nTracks = tracks.length,
+			interpolants = new Array( nTracks );
 
-	for ( var i = 0; i !== nTracks; ++ i ) {
+		const interpolantSettings = {
+			endingStart: ZeroCurvatureEnding,
+			endingEnd: ZeroCurvatureEnding
+		};
 
-		var interpolant = tracks[ i ].createInterpolant( null );
-		interpolants[ i ] = interpolant;
-		interpolant.settings = interpolantSettings;
+		for ( let i = 0; i !== nTracks; ++ i ) {
+
+			const interpolant = tracks[ i ].createInterpolant( null );
+			interpolants[ i ] = interpolant;
+			interpolant.settings = interpolantSettings;
+
+		}
+
+		this._interpolantSettings = interpolantSettings;
+
+		this._interpolants = interpolants; // bound by the mixer
+
+		// inside: PropertyMixer (managed by the mixer)
+		this._propertyBindings = new Array( nTracks );
+
+		this._cacheIndex = null; // for the memory manager
+		this._byClipCacheIndex = null; // for the memory manager
+
+		this._timeScaleInterpolant = null;
+		this._restoreTimeScale = null;
+		this._weightInterpolant = null;
+
+		/**
+		 * The loop mode, set via {@link AnimationAction#setLoop}.
+		 *
+		 * @type {(LoopRepeat|LoopOnce|LoopPingPong)}
+		 * @default LoopRepeat
+		 */
+		this.loop = LoopRepeat;
+		this._loopCount = - 1;
+
+		// global mixer time when the action is to be started
+		// it's set back to 'null' upon start of the action
+		this._startTime = null;
+
+		/**
+		 * The local time of this action (in seconds, starting with `0`).
+		 *
+		 * The value gets clamped or wrapped to `[0,clip.duration]` (according to the
+		 * loop state).
+		 *
+		 * @type {number}
+		 * @default Infinity
+		 */
+		this.time = 0;
+
+		/**
+		 * Scaling factor for the {@link AnimationAction#time}. A value of `0` causes the
+		 * animation to pause. Negative values cause the animation to play backwards.
+		 *
+		 * @type {number}
+		 * @default 1
+		 */
+		this.timeScale = 1;
+		this._effectiveTimeScale = 1;
+
+		/**
+		 * The degree of influence of this action (in the interval `[0, 1]`). Values
+		 * between `0` (no impact) and `1` (full impact) can be used to blend between
+		 * several actions.
+		 *
+		 * @type {number}
+		 * @default 1
+		 */
+		this.weight = 1;
+		this._effectiveWeight = 1;
+
+		/**
+		 * The number of repetitions of the performed clip over the course of this action.
+		 * Can be set via {@link AnimationAction#setLoop}.
+		 *
+		 * Setting this number has no effect if {@link AnimationAction#loop} is set to
+		 * `THREE:LoopOnce`.
+		 *
+		 * @type {number}
+		 * @default Infinity
+		 */
+		this.repetitions = Infinity;
+
+		/**
+		 * If set to `true`, the playback of the action is paused.
+		 *
+		 * @type {boolean}
+		 * @default false
+		 */
+		this.paused = false;
+
+		/**
+		 * If set to `false`, the action is disabled so it has no impact.
+		 *
+		 * When the action is re-enabled, the animation continues from its current
+		 * time (setting `enabled` to `false` doesn't reset the action).
+		 *
+		 * @type {boolean}
+		 * @default true
+		 */
+		this.enabled = true;
+
+		/**
+		 * If set to true the animation will automatically be paused on its last frame.
+		 *
+		 * If set to false, {@link AnimationAction#enabled} will automatically be switched
+		 * to `false` when the last loop of the action has finished, so that this action has
+		 * no further impact.
+		 *
+		 * Note: This member has no impact if the action is interrupted (it
+		 * has only an effect if its last loop has really finished).
+		 *
+		 * @type {boolean}
+		 * @default false
+		 */
+		this.clampWhenFinished = false;
+
+		/**
+		 * Enables smooth interpolation without separate clips for start, loop and end.
+		 *
+		 * @type {boolean}
+		 * @default true
+		 */
+		this.zeroSlopeAtStart = true;
+
+		/**
+		 * Enables smooth interpolation without separate clips for start, loop and end.
+		 *
+		 * @type {boolean}
+		 * @default true
+		 */
+		this.zeroSlopeAtEnd = true;
 
 	}
 
-	this._interpolantSettings = interpolantSettings;
-
-	this._interpolants = interpolants; // bound by the mixer
-
-	// inside: PropertyMixer (managed by the mixer)
-	this._propertyBindings = new Array( nTracks );
-
-	this._cacheIndex = null; // for the memory manager
-	this._byClipCacheIndex = null; // for the memory manager
-
-	this._timeScaleInterpolant = null;
-	this._weightInterpolant = null;
-
-	this.loop = LoopRepeat;
-	this._loopCount = - 1;
-
-	// global mixer time when the action is to be started
-	// it's set back to 'null' upon start of the action
-	this._startTime = null;
-
-	// scaled local time of the action
-	// gets clamped or wrapped to 0..clip.duration according to loop
-	this.time = 0;
-
-	this.timeScale = 1;
-	this._effectiveTimeScale = 1;
-
-	this.weight = 1;
-	this._effectiveWeight = 1;
-
-	this.repetitions = Infinity; // no. of repetitions when looping
-
-	this.paused = false; // true -> zero effective time scale
-	this.enabled = true; // false -> zero effective weight
-
-	this.clampWhenFinished = false;// keep feeding the last frame?
-
-	this.zeroSlopeAtStart = true;// for smooth interpolation w/o separate
-	this.zeroSlopeAtEnd = true;// clips for start, loop and end
-
-}
-
-Object.assign( AnimationAction.prototype, {
-
-	// State & Scheduling
-
-	play: function () {
+	/**
+	 * Starts the playback of the animation.
+	 *
+	 * @return {AnimationAction} A reference to this animation action.
+	 */
+	play() {
 
 		this._mixer._activateAction( this );
 
 		return this;
 
-	},
+	}
 
-	stop: function () {
+	/**
+	 * Stops the playback of the animation.
+	 *
+	 * @return {AnimationAction} A reference to this animation action.
+	 */
+	stop() {
 
 		this._mixer._deactivateAction( this );
 
 		return this.reset();
 
-	},
+	}
 
-	reset: function () {
+	/**
+	 * Resets the playback of the animation.
+	 *
+	 * @return {AnimationAction} A reference to this animation action.
+	 */
+	reset() {
 
 		this.paused = false;
 		this.enabled = true;
@@ -45713,45 +46636,71 @@ Object.assign( AnimationAction.prototype, {
 
 		return this.stopFading().stopWarping();
 
-	},
+	}
 
-	isRunning: function () {
+	/**
+	 * Returns `true` if the animation is running.
+	 *
+	 * @return {boolean} Whether the animation is running or not.
+	 */
+	isRunning() {
 
 		return this.enabled && ! this.paused && this.timeScale !== 0 &&
 			this._startTime === null && this._mixer._isActiveAction( this );
 
-	},
+	}
 
-	// return true when play has been called
-	isScheduled: function () {
+	/**
+	 * Returns `true` when {@link AnimationAction#play} has been called.
+	 *
+	 * @return {boolean} Whether the animation is scheduled or not.
+	 */
+	isScheduled() {
 
 		return this._mixer._isActiveAction( this );
 
-	},
+	}
 
-	startAt: function ( time ) {
+	/**
+	 * Defines the time when the animation should start.
+	 *
+	 * @param {number} time - The start time in seconds.
+	 * @return {AnimationAction} A reference to this animation action.
+	 */
+	startAt( time ) {
 
 		this._startTime = time;
 
 		return this;
 
-	},
+	}
 
-	setLoop: function ( mode, repetitions ) {
+	/**
+	 * Configures the loop settings for this action.
+	 *
+	 * @param {(LoopRepeat|LoopOnce|LoopPingPong)} mode - The loop mode.
+	 * @param {number} repetitions - The number of repetitions.
+	 * @return {AnimationAction} A reference to this animation action.
+	 */
+	setLoop( mode, repetitions ) {
 
 		this.loop = mode;
 		this.repetitions = repetitions;
 
 		return this;
 
-	},
+	}
 
-	// Weight
-
-	// set the weight stopping any scheduled fading
-	// although .enabled = false yields an effective weight of zero, this
-	// method does *not* change .enabled, because it would be confusing
-	setEffectiveWeight: function ( weight ) {
+	/**
+	 * Sets the effective weight of this action.
+	 *
+	 * An action has no effect and thus an effective weight of zero when the
+	 * action is disabled.
+	 *
+	 * @param {number} weight - The weight to set.
+	 * @return {AnimationAction} A reference to this animation action.
+	 */
+	setEffectiveWeight( weight ) {
 
 		this.weight = weight;
 
@@ -45760,39 +46709,70 @@ Object.assign( AnimationAction.prototype, {
 
 		return this.stopFading();
 
-	},
+	}
 
-	// return the weight considering fading and .enabled
-	getEffectiveWeight: function () {
+	/**
+	 * Returns the effective weight of this action.
+	 *
+	 * @return {number} The effective weight.
+	 */
+	getEffectiveWeight() {
 
 		return this._effectiveWeight;
 
-	},
+	}
 
-	fadeIn: function ( duration ) {
+	/**
+	 * Fades the animation in by increasing its weight gradually from `0` to `1`,
+	 * within the passed time interval.
+	 *
+	 * @param {number} duration - The duration of the fade.
+	 * @return {AnimationAction} A reference to this animation action.
+	 */
+	fadeIn( duration ) {
 
 		return this._scheduleFading( duration, 0, 1 );
 
-	},
+	}
 
-	fadeOut: function ( duration ) {
+	/**
+	 * Fades the animation out by decreasing its weight gradually from `1` to `0`,
+	 * within the passed time interval.
+	 *
+	 * @param {number} duration - The duration of the fade.
+	 * @return {AnimationAction} A reference to this animation action.
+	 */
+	fadeOut( duration ) {
 
 		return this._scheduleFading( duration, 1, 0 );
 
-	},
+	}
 
-	crossFadeFrom: function ( fadeOutAction, duration, warp ) {
+	/**
+	 * Causes this action to fade in and the given action to fade out,
+	 * within the passed time interval.
+	 *
+	 * @param {AnimationAction} fadeOutAction - The animation action to fade out.
+	 * @param {number} duration - The duration of the fade.
+	 * @param {boolean} [warp=false] - Whether warping should be used or not.
+	 * @return {AnimationAction} A reference to this animation action.
+	 */
+	crossFadeFrom( fadeOutAction, duration, warp = false ) {
 
 		fadeOutAction.fadeOut( duration );
 		this.fadeIn( duration );
 
-		if ( warp ) {
+		if ( warp === true ) {
 
-			var fadeInDuration = this._clip.duration,
+			const fadeInDuration = this._clip.duration,
 				fadeOutDuration = fadeOutAction._clip.duration,
 
 				startEndRatio = fadeOutDuration / fadeInDuration,
 				endStartRatio = fadeInDuration / fadeOutDuration;
+
+
+			fadeOutAction._restoreTimeScale = fadeOutAction.timeScale;
+			this._restoreTimeScale = this.timeScale;
 
 			fadeOutAction.warp( 1.0, startEndRatio, duration );
 			this.warp( endStartRatio, 1.0, duration );
@@ -45801,17 +46781,31 @@ Object.assign( AnimationAction.prototype, {
 
 		return this;
 
-	},
+	}
 
-	crossFadeTo: function ( fadeInAction, duration, warp ) {
+	/**
+	 * Causes this action to fade out and the given action to fade in,
+	 * within the passed time interval.
+	 *
+	 * @param {AnimationAction} fadeInAction - The animation action to fade in.
+	 * @param {number} duration - The duration of the fade.
+	 * @param {boolean} [warp=false] - Whether warping should be used or not.
+	 * @return {AnimationAction} A reference to this animation action.
+	 */
+	crossFadeTo( fadeInAction, duration, warp = false ) {
 
 		return fadeInAction.crossFadeFrom( this, duration, warp );
 
-	},
+	}
 
-	stopFading: function () {
+	/**
+	 * Stops any fading which is applied to this action.
+	 *
+	 * @return {AnimationAction} A reference to this animation action.
+	 */
+	stopFading() {
 
-		var weightInterpolant = this._weightInterpolant;
+		const weightInterpolant = this._weightInterpolant;
 
 		if ( weightInterpolant !== null ) {
 
@@ -45822,58 +46816,95 @@ Object.assign( AnimationAction.prototype, {
 
 		return this;
 
-	},
+	}
 
-	// Time Scale Control
-
-	// set the time scale stopping any scheduled warping
-	// although .paused = true yields an effective time scale of zero, this
-	// method does *not* change .paused, because it would be confusing
-	setEffectiveTimeScale: function ( timeScale ) {
+	/**
+	 * Sets the effective time scale of this action.
+	 *
+	 * An action has no effect and thus an effective time scale of zero when the
+	 * action is paused.
+	 *
+	 * @param {number} timeScale - The time scale to set.
+	 * @return {AnimationAction} A reference to this animation action.
+	 */
+	setEffectiveTimeScale( timeScale ) {
 
 		this.timeScale = timeScale;
 		this._effectiveTimeScale = this.paused ? 0 : timeScale;
 
 		return this.stopWarping();
 
-	},
+	}
 
-	// return the time scale considering warping and .paused
-	getEffectiveTimeScale: function () {
+	/**
+	 * Returns the effective time scale of this action.
+	 *
+	 * @return {number} The effective time scale.
+	 */
+	getEffectiveTimeScale() {
 
 		return this._effectiveTimeScale;
 
-	},
+	}
 
-	setDuration: function ( duration ) {
+	/**
+	 * Sets the duration for a single loop of this action.
+	 *
+	 * @param {number} duration - The duration to set.
+	 * @return {AnimationAction} A reference to this animation action.
+	 */
+	setDuration( duration ) {
 
 		this.timeScale = this._clip.duration / duration;
 
 		return this.stopWarping();
 
-	},
+	}
 
-	syncWith: function ( action ) {
+	/**
+	 * Synchronizes this action with the passed other action.
+	 *
+	 * @param {AnimationAction} action - The action to sync with.
+	 * @return {AnimationAction} A reference to this animation action.
+	 */
+	syncWith( action ) {
 
 		this.time = action.time;
 		this.timeScale = action.timeScale;
 
 		return this.stopWarping();
 
-	},
+	}
 
-	halt: function ( duration ) {
+	/**
+	 * Decelerates this animation's speed to `0` within the passed time interval.
+	 *
+	 * @param {number} duration - The duration.
+	 * @return {AnimationAction} A reference to this animation action.
+	 */
+	halt( duration ) {
 
 		return this.warp( this._effectiveTimeScale, 0, duration );
 
-	},
+	}
 
-	warp: function ( startTimeScale, endTimeScale, duration ) {
+	/**
+	 * Changes the playback speed, within the passed time interval, by modifying
+	 * {@link AnimationAction#timeScale} gradually from `startTimeScale` to
+	 * `endTimeScale`.
+	 *
+	 * @param {number} startTimeScale - The start time scale.
+	 * @param {number} endTimeScale - The end time scale.
+	 * @param {number} duration - The duration.
+	 * @return {AnimationAction} A reference to this animation action.
+	 */
+	warp( startTimeScale, endTimeScale, duration ) {
 
-		var mixer = this._mixer, now = mixer.time,
-			interpolant = this._timeScaleInterpolant,
-
+		const mixer = this._mixer,
+			now = mixer.time,
 			timeScale = this.timeScale;
+
+		let interpolant = this._timeScaleInterpolant;
 
 		if ( interpolant === null ) {
 
@@ -45882,7 +46913,7 @@ Object.assign( AnimationAction.prototype, {
 
 		}
 
-		var times = interpolant.parameterPositions,
+		const times = interpolant.parameterPositions,
 			values = interpolant.sampleValues;
 
 		times[ 0 ] = now;
@@ -45893,11 +46924,16 @@ Object.assign( AnimationAction.prototype, {
 
 		return this;
 
-	},
+	}
 
-	stopWarping: function () {
+	/**
+	 * Stops any scheduled warping which is applied to this action.
+	 *
+	 * @return {AnimationAction} A reference to this animation action.
+	 */
+	stopWarping() {
 
-		var timeScaleInterpolant = this._timeScaleInterpolant;
+		const timeScaleInterpolant = this._timeScaleInterpolant;
 
 		if ( timeScaleInterpolant !== null ) {
 
@@ -45906,33 +46942,48 @@ Object.assign( AnimationAction.prototype, {
 
 		}
 
+		this._restoreTimeScale = null;
+
 		return this;
 
-	},
+	}
 
-	// Object Accessors
-
-	getMixer: function () {
+	/**
+	 * Returns the animation mixer of this animation action.
+	 *
+	 * @return {AnimationMixer} The animation mixer.
+	 */
+	getMixer() {
 
 		return this._mixer;
 
-	},
+	}
 
-	getClip: function () {
+	/**
+	 * Returns the animation clip of this animation action.
+	 *
+	 * @return {AnimationClip} The animation clip.
+	 */
+	getClip() {
 
 		return this._clip;
 
-	},
+	}
 
-	getRoot: function () {
+	/**
+	 * Returns the root object of this animation action.
+	 *
+	 * @return {Object3D} The root object.
+	 */
+	getRoot() {
 
 		return this._localRoot || this._mixer._root;
 
-	},
+	}
 
-	// Interna
+	// Internal
 
-	_update: function ( time, deltaTime, timeDirection, accuIndex ) {
+	_update( time, deltaTime, timeDirection, accuIndex ) {
 
 		// called by the mixer
 
@@ -45945,64 +46996,83 @@ Object.assign( AnimationAction.prototype, {
 
 		}
 
-		var startTime = this._startTime;
+		const startTime = this._startTime;
 
 		if ( startTime !== null ) {
 
 			// check for scheduled start of action
 
-			var timeRunning = ( time - startTime ) * timeDirection;
+			const timeRunning = ( time - startTime ) * timeDirection;
 			if ( timeRunning < 0 || timeDirection === 0 ) {
 
-				return; // yet to come / don't decide when delta = 0
+				deltaTime = 0;
+
+			} else {
+
+
+				this._startTime = null; // unschedule
+				deltaTime = timeDirection * timeRunning;
 
 			}
-
-			// start
-
-			this._startTime = null; // unschedule
-			deltaTime = timeDirection * timeRunning;
 
 		}
 
 		// apply time scale and advance time
 
 		deltaTime *= this._updateTimeScale( time );
-		var clipTime = this._updateTime( deltaTime );
+		const clipTime = this._updateTime( deltaTime );
 
 		// note: _updateTime may disable the action resulting in
 		// an effective weight of 0
 
-		var weight = this._updateWeight( time );
+		const weight = this._updateWeight( time );
 
 		if ( weight > 0 ) {
 
-			var interpolants = this._interpolants;
-			var propertyMixers = this._propertyBindings;
+			const interpolants = this._interpolants;
+			const propertyMixers = this._propertyBindings;
 
-			for ( var j = 0, m = interpolants.length; j !== m; ++ j ) {
+			switch ( this.blendMode ) {
 
-				interpolants[ j ].evaluate( clipTime );
-				propertyMixers[ j ].accumulate( accuIndex, weight );
+				case AdditiveAnimationBlendMode:
+
+					for ( let j = 0, m = interpolants.length; j !== m; ++ j ) {
+
+						interpolants[ j ].evaluate( clipTime );
+						propertyMixers[ j ].accumulateAdditive( weight );
+
+					}
+
+					break;
+
+				case NormalAnimationBlendMode:
+				default:
+
+					for ( let j = 0, m = interpolants.length; j !== m; ++ j ) {
+
+						interpolants[ j ].evaluate( clipTime );
+						propertyMixers[ j ].accumulate( accuIndex, weight );
+
+					}
 
 			}
 
 		}
 
-	},
+	}
 
-	_updateWeight: function ( time ) {
+	_updateWeight( time ) {
 
-		var weight = 0;
+		let weight = 0;
 
 		if ( this.enabled ) {
 
 			weight = this.weight;
-			var interpolant = this._weightInterpolant;
+			const interpolant = this._weightInterpolant;
 
 			if ( interpolant !== null ) {
 
-				var interpolantValue = interpolant.evaluate( time )[ 0 ];
+				const interpolantValue = interpolant.evaluate( time )[ 0 ];
 
 				weight *= interpolantValue;
 
@@ -46026,27 +47096,25 @@ Object.assign( AnimationAction.prototype, {
 		this._effectiveWeight = weight;
 		return weight;
 
-	},
+	}
 
-	_updateTimeScale: function ( time ) {
+	_updateTimeScale( time ) {
 
-		var timeScale = 0;
+		let timeScale = 0;
 
 		if ( ! this.paused ) {
 
 			timeScale = this.timeScale;
 
-			var interpolant = this._timeScaleInterpolant;
+			const interpolant = this._timeScaleInterpolant;
 
 			if ( interpolant !== null ) {
 
-				var interpolantValue = interpolant.evaluate( time )[ 0 ];
+				const interpolantValue = interpolant.evaluate( time )[ 0 ];
 
 				timeScale *= interpolantValue;
 
 				if ( time > interpolant.parameterPositions[ 1 ] ) {
-
-					this.stopWarping();
 
 					if ( timeScale === 0 ) {
 
@@ -46055,10 +47123,18 @@ Object.assign( AnimationAction.prototype, {
 
 					} else {
 
+						if ( this._restoreTimeScale !== null ) {
+
+							timeScale = this._restoreTimeScale;
+
+						}
+
 						// warp done - apply final time scale
 						this.timeScale = timeScale;
 
 					}
+
+					this.stopWarping();
 
 				}
 
@@ -46069,16 +47145,17 @@ Object.assign( AnimationAction.prototype, {
 		this._effectiveTimeScale = timeScale;
 		return timeScale;
 
-	},
+	}
 
-	_updateTime: function ( deltaTime ) {
+	_updateTime( deltaTime ) {
 
-		var time = this.time + deltaTime;
-		var duration = this._clip.duration;
-		var loop = this.loop;
-		var loopCount = this._loopCount;
+		const duration = this._clip.duration;
+		const loop = this.loop;
 
-		var pingPong = ( loop === LoopPingPong );
+		let time = this.time + deltaTime;
+		let loopCount = this._loopCount;
+
+		const pingPong = ( loop === LoopPingPong );
 
 		if ( deltaTime === 0 ) {
 
@@ -46157,12 +47234,12 @@ Object.assign( AnimationAction.prototype, {
 
 				// wrap around
 
-				var loopDelta = Math.floor( time / duration ); // signed
+				const loopDelta = Math.floor( time / duration ); // signed
 				time -= duration * loopDelta;
 
 				loopCount += Math.abs( loopDelta );
 
-				var pending = this.repetitions - loopCount;
+				const pending = this.repetitions - loopCount;
 
 				if ( pending <= 0 ) {
 
@@ -46188,7 +47265,7 @@ Object.assign( AnimationAction.prototype, {
 
 						// entering the last round
 
-						var atStart = deltaTime < 0;
+						const atStart = deltaTime < 0;
 						this._setEndings( atStart, ! atStart, pingPong );
 
 					} else {
@@ -46209,6 +47286,7 @@ Object.assign( AnimationAction.prototype, {
 
 			} else {
 
+				this._loopCount = loopCount;
 				this.time = time;
 
 			}
@@ -46225,11 +47303,11 @@ Object.assign( AnimationAction.prototype, {
 
 		return time;
 
-	},
+	}
 
-	_setEndings: function ( atStart, atEnd, pingPong ) {
+	_setEndings( atStart, atEnd, pingPong ) {
 
-		var settings = this._interpolantSettings;
+		const settings = this._interpolantSettings;
 
 		if ( pingPong ) {
 
@@ -46256,18 +47334,18 @@ Object.assign( AnimationAction.prototype, {
 
 			} else {
 
-				settings.endingEnd 	 = WrapAroundEnding;
+				settings.endingEnd = WrapAroundEnding;
 
 			}
 
 		}
 
-	},
+	}
 
-	_scheduleFading: function ( duration, weightNow, weightThen ) {
+	_scheduleFading( duration, weightNow, weightThen ) {
 
-		var mixer = this._mixer, now = mixer.time,
-			interpolant = this._weightInterpolant;
+		const mixer = this._mixer, now = mixer.time;
+		let interpolant = this._weightInterpolant;
 
 		if ( interpolant === null ) {
 
@@ -46276,7 +47354,7 @@ Object.assign( AnimationAction.prototype, {
 
 		}
 
-		var times = interpolant.parameterPositions,
+		const times = interpolant.parameterPositions,
 			values = interpolant.sampleValues;
 
 		times[ 0 ] = now;
@@ -46288,44 +47366,67 @@ Object.assign( AnimationAction.prototype, {
 
 	}
 
-} );
-
-/**
- *
- * Player for AnimationClips.
- *
- *
- * @author Ben Houston / http://clara.io/
- * @author David Sarno / http://lighthaus.us/
- * @author tschw
- */
-
-function AnimationMixer( root ) {
-
-	this._root = root;
-	this._initMemoryManager();
-	this._accuIndex = 0;
-
-	this.time = 0;
-
-	this.timeScale = 1.0;
-
 }
 
-AnimationMixer.prototype = Object.assign( Object.create( EventDispatcher.prototype ), {
+// backport from r185: clipAction(clip, root, blendMode) 透传 blendMode
 
-	constructor: AnimationMixer,
+const _controlInterpolantsResultBuffer = new Float32Array( 1 );
 
-	_bindAction: function ( action, prototypeAction ) {
+/**
+ * `AnimationMixer` is a player for animations on a particular object in
+ * the scene. When multiple objects in the scene are animated independently,
+ * one `AnimationMixer` may be used for each object.
+ */
+class AnimationMixer extends EventDispatcher {
 
-		var root = action._localRoot || this._root,
+	/**
+	 * Constructs a new animation mixer.
+	 *
+	 * @param {Object3D} root - The object whose animations shall be played by this mixer.
+	 */
+	constructor( root ) {
+
+		super();
+
+		this._root = root;
+		this._initMemoryManager();
+		this._accuIndex = 0;
+
+		/**
+		 * The global mixer time (in seconds; starting with `0` on the mixer's creation).
+		 *
+		 * @type {number}
+		 * @default 0
+		 */
+		this.time = 0;
+
+		/**
+		 * A scaling factor for the global time.
+		 *
+		 * Note: Setting this member to `0` and later back to `1` is a
+		 * possibility to pause/unpause all actions that are controlled by this
+		 * mixer.
+		 *
+		 * @type {number}
+		 * @default 1
+		 */
+		this.timeScale = 1.0;
+
+		// r110 适配: 删除 __THREE_DEVTOOLS__ 通知(小程序无 CustomEvent, r110 全库无此机制)
+
+	}
+
+	_bindAction( action, prototypeAction ) {
+
+		const root = action._localRoot || this._root,
 			tracks = action._clip.tracks,
 			nTracks = tracks.length,
 			bindings = action._propertyBindings,
 			interpolants = action._interpolants,
 			rootUuid = root.uuid,
-			bindingsByRoot = this._bindingsByRootAndName,
-			bindingsByName = bindingsByRoot[ rootUuid ];
+			bindingsByRoot = this._bindingsByRootAndName;
+
+		let bindingsByName = bindingsByRoot[ rootUuid ];
 
 		if ( bindingsByName === undefined ) {
 
@@ -46334,14 +47435,16 @@ AnimationMixer.prototype = Object.assign( Object.create( EventDispatcher.prototy
 
 		}
 
-		for ( var i = 0; i !== nTracks; ++ i ) {
+		for ( let i = 0; i !== nTracks; ++ i ) {
 
-			var track = tracks[ i ],
-				trackName = track.name,
-				binding = bindingsByName[ trackName ];
+			const track = tracks[ i ],
+				trackName = track.name;
+
+			let binding = bindingsByName[ trackName ];
 
 			if ( binding !== undefined ) {
 
+				++ binding.referenceCount;
 				bindings[ i ] = binding;
 
 			} else {
@@ -46363,7 +47466,7 @@ AnimationMixer.prototype = Object.assign( Object.create( EventDispatcher.prototy
 
 				}
 
-				var path = prototypeAction && prototypeAction.
+				const path = prototypeAction && prototypeAction.
 					_propertyBindings[ i ].binding.parsedPath;
 
 				binding = new PropertyMixer(
@@ -46381,9 +47484,9 @@ AnimationMixer.prototype = Object.assign( Object.create( EventDispatcher.prototy
 
 		}
 
-	},
+	}
 
-	_activateAction: function ( action ) {
+	_activateAction( action ) {
 
 		if ( ! this._isActiveAction( action ) ) {
 
@@ -46392,7 +47495,7 @@ AnimationMixer.prototype = Object.assign( Object.create( EventDispatcher.prototy
 				// this action has been forgotten by the cache, but the user
 				// appears to be still using it -> rebind
 
-				var rootUuid = ( action._localRoot || this._root ).uuid,
+				const rootUuid = ( action._localRoot || this._root ).uuid,
 					clipUuid = action._clip.uuid,
 					actionsForClip = this._actionsByClip[ clipUuid ];
 
@@ -46403,12 +47506,12 @@ AnimationMixer.prototype = Object.assign( Object.create( EventDispatcher.prototy
 
 			}
 
-			var bindings = action._propertyBindings;
+			const bindings = action._propertyBindings;
 
 			// increment reference counts / sort out state
-			for ( var i = 0, n = bindings.length; i !== n; ++ i ) {
+			for ( let i = 0, n = bindings.length; i !== n; ++ i ) {
 
-				var binding = bindings[ i ];
+				const binding = bindings[ i ];
 
 				if ( binding.useCount ++ === 0 ) {
 
@@ -46423,18 +47526,18 @@ AnimationMixer.prototype = Object.assign( Object.create( EventDispatcher.prototy
 
 		}
 
-	},
+	}
 
-	_deactivateAction: function ( action ) {
+	_deactivateAction( action ) {
 
 		if ( this._isActiveAction( action ) ) {
 
-			var bindings = action._propertyBindings;
+			const bindings = action._propertyBindings;
 
 			// decrement reference counts / sort out state
-			for ( var i = 0, n = bindings.length; i !== n; ++ i ) {
+			for ( let i = 0, n = bindings.length; i !== n; ++ i ) {
 
-				var binding = bindings[ i ];
+				const binding = bindings[ i ];
 
 				if ( -- binding.useCount === 0 ) {
 
@@ -46449,11 +47552,11 @@ AnimationMixer.prototype = Object.assign( Object.create( EventDispatcher.prototy
 
 		}
 
-	},
+	}
 
 	// Memory manager
 
-	_initMemoryManager: function () {
+	_initMemoryManager() {
 
 		this._actions = []; // 'nActiveActions' followed by inactive ones
 		this._nActiveActions = 0;
@@ -46475,7 +47578,7 @@ AnimationMixer.prototype = Object.assign( Object.create( EventDispatcher.prototy
 		this._controlInterpolants = []; // same game as above
 		this._nActiveControlInterpolants = 0;
 
-		var scope = this;
+		const scope = this;
 
 		this.stats = {
 
@@ -46518,22 +47621,23 @@ AnimationMixer.prototype = Object.assign( Object.create( EventDispatcher.prototy
 
 		};
 
-	},
+	}
 
 	// Memory management for AnimationAction objects
 
-	_isActiveAction: function ( action ) {
+	_isActiveAction( action ) {
 
-		var index = action._cacheIndex;
+		const index = action._cacheIndex;
 		return index !== null && index < this._nActiveActions;
 
-	},
+	}
 
-	_addInactiveAction: function ( action, clipUuid, rootUuid ) {
+	_addInactiveAction( action, clipUuid, rootUuid ) {
 
-		var actions = this._actions,
-			actionsByClip = this._actionsByClip,
-			actionsForClip = actionsByClip[ clipUuid ];
+		const actions = this._actions,
+			actionsByClip = this._actionsByClip;
+
+		let actionsForClip = actionsByClip[ clipUuid ];
 
 		if ( actionsForClip === undefined ) {
 
@@ -46550,7 +47654,7 @@ AnimationMixer.prototype = Object.assign( Object.create( EventDispatcher.prototy
 
 		} else {
 
-			var knownActions = actionsForClip.knownActions;
+			const knownActions = actionsForClip.knownActions;
 
 			action._byClipCacheIndex = knownActions.length;
 			knownActions.push( action );
@@ -46562,11 +47666,11 @@ AnimationMixer.prototype = Object.assign( Object.create( EventDispatcher.prototy
 
 		actionsForClip.actionByRoot[ rootUuid ] = action;
 
-	},
+	}
 
-	_removeInactiveAction: function ( action ) {
+	_removeInactiveAction( action ) {
 
-		var actions = this._actions,
+		const actions = this._actions,
 			lastInactiveAction = actions[ actions.length - 1 ],
 			cacheIndex = action._cacheIndex;
 
@@ -46577,7 +47681,7 @@ AnimationMixer.prototype = Object.assign( Object.create( EventDispatcher.prototy
 		action._cacheIndex = null;
 
 
-		var clipUuid = action._clip.uuid,
+		const clipUuid = action._clip.uuid,
 			actionsByClip = this._actionsByClip,
 			actionsForClip = actionsByClip[ clipUuid ],
 			knownActionsForClip = actionsForClip.knownActions,
@@ -46594,7 +47698,7 @@ AnimationMixer.prototype = Object.assign( Object.create( EventDispatcher.prototy
 		action._byClipCacheIndex = null;
 
 
-		var actionByRoot = actionsForClip.actionByRoot,
+		const actionByRoot = actionsForClip.actionByRoot,
 			rootUuid = ( action._localRoot || this._root ).uuid;
 
 		delete actionByRoot[ rootUuid ];
@@ -46607,14 +47711,15 @@ AnimationMixer.prototype = Object.assign( Object.create( EventDispatcher.prototy
 
 		this._removeInactiveBindingsForAction( action );
 
-	},
+	}
 
-	_removeInactiveBindingsForAction: function ( action ) {
+	_removeInactiveBindingsForAction( action ) {
 
-		var bindings = action._propertyBindings;
-		for ( var i = 0, n = bindings.length; i !== n; ++ i ) {
+		const bindings = action._propertyBindings;
 
-			var binding = bindings[ i ];
+		for ( let i = 0, n = bindings.length; i !== n; ++ i ) {
+
+			const binding = bindings[ i ];
 
 			if ( -- binding.referenceCount === 0 ) {
 
@@ -46624,9 +47729,9 @@ AnimationMixer.prototype = Object.assign( Object.create( EventDispatcher.prototy
 
 		}
 
-	},
+	}
 
-	_lendAction: function ( action ) {
+	_lendAction( action ) {
 
 		// [ active actions |  inactive actions  ]
 		// [  active actions >| inactive actions ]
@@ -46634,7 +47739,7 @@ AnimationMixer.prototype = Object.assign( Object.create( EventDispatcher.prototy
 		//                  <-swap->
 		//                 a        s
 
-		var actions = this._actions,
+		const actions = this._actions,
 			prevIndex = action._cacheIndex,
 
 			lastActiveIndex = this._nActiveActions ++,
@@ -46647,9 +47752,9 @@ AnimationMixer.prototype = Object.assign( Object.create( EventDispatcher.prototy
 		firstInactiveAction._cacheIndex = prevIndex;
 		actions[ prevIndex ] = firstInactiveAction;
 
-	},
+	}
 
-	_takeBackAction: function ( action ) {
+	_takeBackAction( action ) {
 
 		// [  active actions  | inactive actions ]
 		// [ active actions |< inactive actions  ]
@@ -46657,7 +47762,7 @@ AnimationMixer.prototype = Object.assign( Object.create( EventDispatcher.prototy
 		//         <-swap->
 		//        s        a
 
-		var actions = this._actions,
+		const actions = this._actions,
 			prevIndex = action._cacheIndex,
 
 			firstInactiveIndex = -- this._nActiveActions,
@@ -46670,16 +47775,16 @@ AnimationMixer.prototype = Object.assign( Object.create( EventDispatcher.prototy
 		lastActiveAction._cacheIndex = prevIndex;
 		actions[ prevIndex ] = lastActiveAction;
 
-	},
+	}
 
 	// Memory management for PropertyMixer objects
 
-	_addInactiveBinding: function ( binding, rootUuid, trackName ) {
+	_addInactiveBinding( binding, rootUuid, trackName ) {
 
-		var bindingsByRoot = this._bindingsByRootAndName,
-			bindingByName = bindingsByRoot[ rootUuid ],
-
+		const bindingsByRoot = this._bindingsByRootAndName,
 			bindings = this._bindings;
+
+		let bindingByName = bindingsByRoot[ rootUuid ];
 
 		if ( bindingByName === undefined ) {
 
@@ -46693,11 +47798,11 @@ AnimationMixer.prototype = Object.assign( Object.create( EventDispatcher.prototy
 		binding._cacheIndex = bindings.length;
 		bindings.push( binding );
 
-	},
+	}
 
-	_removeInactiveBinding: function ( binding ) {
+	_removeInactiveBinding( binding ) {
 
-		var bindings = this._bindings,
+		const bindings = this._bindings,
 			propBinding = binding.binding,
 			rootUuid = propBinding.rootNode.uuid,
 			trackName = propBinding.path,
@@ -46719,11 +47824,11 @@ AnimationMixer.prototype = Object.assign( Object.create( EventDispatcher.prototy
 
 		}
 
-	},
+	}
 
-	_lendBinding: function ( binding ) {
+	_lendBinding( binding ) {
 
-		var bindings = this._bindings,
+		const bindings = this._bindings,
 			prevIndex = binding._cacheIndex,
 
 			lastActiveIndex = this._nActiveBindings ++,
@@ -46736,11 +47841,11 @@ AnimationMixer.prototype = Object.assign( Object.create( EventDispatcher.prototy
 		firstInactiveBinding._cacheIndex = prevIndex;
 		bindings[ prevIndex ] = firstInactiveBinding;
 
-	},
+	}
 
-	_takeBackBinding: function ( binding ) {
+	_takeBackBinding( binding ) {
 
-		var bindings = this._bindings,
+		const bindings = this._bindings,
 			prevIndex = binding._cacheIndex,
 
 			firstInactiveIndex = -- this._nActiveBindings,
@@ -46753,22 +47858,23 @@ AnimationMixer.prototype = Object.assign( Object.create( EventDispatcher.prototy
 		lastActiveBinding._cacheIndex = prevIndex;
 		bindings[ prevIndex ] = lastActiveBinding;
 
-	},
+	}
 
 
 	// Memory management of Interpolants for weight and time scale
 
-	_lendControlInterpolant: function () {
+	_lendControlInterpolant() {
 
-		var interpolants = this._controlInterpolants,
-			lastActiveIndex = this._nActiveControlInterpolants ++,
-			interpolant = interpolants[ lastActiveIndex ];
+		const interpolants = this._controlInterpolants,
+			lastActiveIndex = this._nActiveControlInterpolants ++;
+
+		let interpolant = interpolants[ lastActiveIndex ];
 
 		if ( interpolant === undefined ) {
 
 			interpolant = new LinearInterpolant(
 				new Float32Array( 2 ), new Float32Array( 2 ),
-				1, this._controlInterpolantsResultBuffer );
+				1, _controlInterpolantsResultBuffer );
 
 			interpolant.__cacheIndex = lastActiveIndex;
 			interpolants[ lastActiveIndex ] = interpolant;
@@ -46777,11 +47883,11 @@ AnimationMixer.prototype = Object.assign( Object.create( EventDispatcher.prototy
 
 		return interpolant;
 
-	},
+	}
 
-	_takeBackControlInterpolant: function ( interpolant ) {
+	_takeBackControlInterpolant( interpolant ) {
 
-		var interpolants = this._controlInterpolants,
+		const interpolants = this._controlInterpolants,
 			prevIndex = interpolant.__cacheIndex,
 
 			firstInactiveIndex = -- this._nActiveControlInterpolants,
@@ -46794,32 +47900,51 @@ AnimationMixer.prototype = Object.assign( Object.create( EventDispatcher.prototy
 		lastActiveInterpolant.__cacheIndex = prevIndex;
 		interpolants[ prevIndex ] = lastActiveInterpolant;
 
-	},
+	}
 
-	_controlInterpolantsResultBuffer: new Float32Array( 1 ),
+	/**
+	 * Returns an instance of {@link AnimationAction} for the passed clip.
+	 *
+	 * If an action fitting the clip and root parameters doesn't yet exist, it
+	 * will be created by this method. Calling this method several times with the
+	 * same clip and root parameters always returns the same action.
+	 *
+	 * @param {AnimationClip|string} clip - An animation clip or alternatively the name of the animation clip.
+	 * @param {Object3D} [optionalRoot] - An alternative root object.
+	 * @param {(NormalAnimationBlendMode|AdditiveAnimationBlendMode)} [blendMode] - The blend mode.
+	 * @return {?AnimationAction} The animation action.
+	 */
+	clipAction( clip, optionalRoot, blendMode ) {
 
-	// return an action for a clip optionally using a custom root target
-	// object (this method allocates a lot of dynamic memory in case a
-	// previously unknown clip/root combination is specified)
-	clipAction: function ( clip, optionalRoot ) {
+		const root = optionalRoot || this._root,
+			rootUuid = root.uuid;
 
-		var root = optionalRoot || this._root,
-			rootUuid = root.uuid,
+		let clipObject = typeof clip === 'string' ? AnimationClip.findByName( root, clip ) : clip;
 
-			clipObject = typeof clip === 'string' ?
-				AnimationClip.findByName( root, clip ) : clip,
+		const clipUuid = clipObject !== null ? clipObject.uuid : clip;
 
-			clipUuid = clipObject !== null ? clipObject.uuid : clip,
+		const actionsForClip = this._actionsByClip[ clipUuid ];
+		let prototypeAction = null;
 
-			actionsForClip = this._actionsByClip[ clipUuid ],
-			prototypeAction = null;
+		if ( blendMode === undefined ) {
+
+			if ( clipObject !== null ) {
+
+				blendMode = clipObject.blendMode;
+
+			} else {
+
+				blendMode = NormalAnimationBlendMode;
+
+			}
+
+		}
 
 		if ( actionsForClip !== undefined ) {
 
-			var existingAction =
-					actionsForClip.actionByRoot[ rootUuid ];
+			const existingAction = actionsForClip.actionByRoot[ rootUuid ];
 
-			if ( existingAction !== undefined ) {
+			if ( existingAction !== undefined && existingAction.blendMode === blendMode ) {
 
 				return existingAction;
 
@@ -46839,7 +47964,7 @@ AnimationMixer.prototype = Object.assign( Object.create( EventDispatcher.prototy
 		if ( clipObject === null ) return null;
 
 		// allocate all resources required to run it
-		var newAction = new AnimationAction( this, clipObject, optionalRoot );
+		const newAction = new AnimationAction( this, clipObject, optionalRoot, blendMode );
 
 		this._bindAction( newAction, prototypeAction );
 
@@ -46848,12 +47973,18 @@ AnimationMixer.prototype = Object.assign( Object.create( EventDispatcher.prototy
 
 		return newAction;
 
-	},
+	}
 
-	// get an existing action
-	existingAction: function ( clip, optionalRoot ) {
+	/**
+	 * Returns an existing animation action for the passed clip.
+	 *
+	 * @param {AnimationClip|string} clip - An animation clip or alternatively the name of the animation clip.
+	 * @param {Object3D} [optionalRoot] - An alternative root object.
+	 * @return {?AnimationAction} The animation action. Returns `null` if no action was found.
+	 */
+	existingAction( clip, optionalRoot ) {
 
-		var root = optionalRoot || this._root,
+		const root = optionalRoot || this._root,
 			rootUuid = root.uuid,
 
 			clipObject = typeof clip === 'string' ?
@@ -46871,41 +48002,42 @@ AnimationMixer.prototype = Object.assign( Object.create( EventDispatcher.prototy
 
 		return null;
 
-	},
+	}
 
-	// deactivates all previously scheduled actions
-	stopAllAction: function () {
+	/**
+	 * Deactivates all previously scheduled actions on this mixer.
+	 *
+	 * @return {AnimationMixer} A reference to this animation mixer.
+	 */
+	stopAllAction() {
 
-		var actions = this._actions,
-			nActions = this._nActiveActions,
-			bindings = this._bindings,
-			nBindings = this._nActiveBindings;
+		const actions = this._actions,
+			nActions = this._nActiveActions;
 
-		this._nActiveActions = 0;
-		this._nActiveBindings = 0;
+		for ( let i = nActions - 1; i >= 0; -- i ) {
 
-		for ( var i = 0; i !== nActions; ++ i ) {
-
-			actions[ i ].reset();
-
-		}
-
-		for ( var i = 0; i !== nBindings; ++ i ) {
-
-			bindings[ i ].useCount = 0;
+			actions[ i ].stop();
 
 		}
 
 		return this;
 
-	},
+	}
 
-	// advance the time and update apply the animation
-	update: function ( deltaTime ) {
+	/**
+	 * Advances the global mixer time and updates the animation.
+	 *
+	 * This is usually done in the render loop by passing the delta
+	 * time from {@link Clock} or {@link Timer}.
+	 *
+	 * @param {number} deltaTime - The delta time in seconds.
+	 * @return {AnimationMixer} A reference to this animation mixer.
+	 */
+	update( deltaTime ) {
 
 		deltaTime *= this.timeScale;
 
-		var actions = this._actions,
+		const actions = this._actions,
 			nActions = this._nActiveActions,
 
 			time = this.time += deltaTime,
@@ -46915,9 +48047,9 @@ AnimationMixer.prototype = Object.assign( Object.create( EventDispatcher.prototy
 
 		// run active actions
 
-		for ( var i = 0; i !== nActions; ++ i ) {
+		for ( let i = 0; i !== nActions; ++ i ) {
 
-			var action = actions[ i ];
+			const action = actions[ i ];
 
 			action._update( time, deltaTime, timeDirection, accuIndex );
 
@@ -46925,10 +48057,10 @@ AnimationMixer.prototype = Object.assign( Object.create( EventDispatcher.prototy
 
 		// update scene graph
 
-		var bindings = this._bindings,
+		const bindings = this._bindings,
 			nBindings = this._nActiveBindings;
 
-		for ( var i = 0; i !== nBindings; ++ i ) {
+		for ( let i = 0; i !== nBindings; ++ i ) {
 
 			bindings[ i ].apply( accuIndex );
 
@@ -46936,33 +48068,50 @@ AnimationMixer.prototype = Object.assign( Object.create( EventDispatcher.prototy
 
 		return this;
 
-	},
+	}
 
-	// Allows you to seek to a specific time in an animation.
-	setTime: function ( timeInSeconds ) {
+	/**
+	 * Sets the global mixer to a specific time and updates the animation accordingly.
+	 *
+	 * This is useful when you need to jump to an exact time in an animation. The
+	 * input parameter will be scaled by {@link AnimationMixer#timeScale}
+	 *
+	 * @param {number} time - The time to set in seconds.
+	 * @return {AnimationMixer} A reference to this animation mixer.
+	 */
+	setTime( time ) {
 
 		this.time = 0; // Zero out time attribute for AnimationMixer object;
-		for ( var i = 0; i < this._actions.length; i ++ ) {
+		for ( let i = 0; i < this._actions.length; i ++ ) {
 
 			this._actions[ i ].time = 0; // Zero out time attribute for all associated AnimationAction objects.
 
 		}
 
-		return this.update( timeInSeconds ); // Update used to set exact time. Returns "this" AnimationMixer object.
+		return this.update( time ); // Update used to set exact time. Returns "this" AnimationMixer object.
 
-	},
+	}
 
-	// return this mixer's root target object
-	getRoot: function () {
+	/**
+	 * Returns this mixer's root object.
+	 *
+	 * @return {Object3D} The mixer's root object.
+	 */
+	getRoot() {
 
 		return this._root;
 
-	},
+	}
 
-	// free all resources specific to a particular clip
-	uncacheClip: function ( clip ) {
+	/**
+	 * Deallocates all memory resources for a clip. Before using this method make
+	 * sure to call {@link AnimationAction#stop} for all related actions.
+	 *
+	 * @param {AnimationClip} clip - The clip to uncache.
+	 */
+	uncacheClip( clip ) {
 
-		var actions = this._actions,
+		const actions = this._actions,
 			clipUuid = clip.uuid,
 			actionsByClip = this._actionsByClip,
 			actionsForClip = actionsByClip[ clipUuid ];
@@ -46973,15 +48122,15 @@ AnimationMixer.prototype = Object.assign( Object.create( EventDispatcher.prototy
 			// iteration state and also require updating the state we can
 			// just throw away
 
-			var actionsToRemove = actionsForClip.knownActions;
+			const actionsToRemove = actionsForClip.knownActions;
 
-			for ( var i = 0, n = actionsToRemove.length; i !== n; ++ i ) {
+			for ( let i = 0, n = actionsToRemove.length; i !== n; ++ i ) {
 
-				var action = actionsToRemove[ i ];
+				const action = actionsToRemove[ i ];
 
 				this._deactivateAction( action );
 
-				var cacheIndex = action._cacheIndex,
+				const cacheIndex = action._cacheIndex,
 					lastInactiveAction = actions[ actions.length - 1 ];
 
 				action._cacheIndex = null;
@@ -46999,17 +48148,24 @@ AnimationMixer.prototype = Object.assign( Object.create( EventDispatcher.prototy
 
 		}
 
-	},
+	}
 
-	// free all resources specific to a particular root target object
-	uncacheRoot: function ( root ) {
+	/**
+	 * Deallocates all memory resources for a root object. Before using this
+	 * method make sure to call {@link AnimationAction#stop} for all related
+	 * actions or alternatively {@link AnimationMixer#stopAllAction} when the
+	 * mixer operates on a single root.
+	 *
+	 * @param {Object3D} root - The root object to uncache.
+	 */
+	uncacheRoot( root ) {
 
-		var rootUuid = root.uuid,
+		const rootUuid = root.uuid,
 			actionsByClip = this._actionsByClip;
 
-		for ( var clipUuid in actionsByClip ) {
+		for ( const clipUuid in actionsByClip ) {
 
-			var actionByRoot = actionsByClip[ clipUuid ].actionByRoot,
+			const actionByRoot = actionsByClip[ clipUuid ].actionByRoot,
 				action = actionByRoot[ rootUuid ];
 
 			if ( action !== undefined ) {
@@ -47021,14 +48177,14 @@ AnimationMixer.prototype = Object.assign( Object.create( EventDispatcher.prototy
 
 		}
 
-		var bindingsByRoot = this._bindingsByRootAndName,
+		const bindingsByRoot = this._bindingsByRootAndName,
 			bindingByName = bindingsByRoot[ rootUuid ];
 
 		if ( bindingByName !== undefined ) {
 
-			for ( var trackName in bindingByName ) {
+			for ( const trackName in bindingByName ) {
 
-				var binding = bindingByName[ trackName ];
+				const binding = bindingByName[ trackName ];
 				binding.restoreOriginalState();
 				this._removeInactiveBinding( binding );
 
@@ -47036,12 +48192,19 @@ AnimationMixer.prototype = Object.assign( Object.create( EventDispatcher.prototy
 
 		}
 
-	},
+	}
 
-	// remove a targeted clip from the cache
-	uncacheAction: function ( clip, optionalRoot ) {
+	/**
+	 * Deallocates all memory resources for an action. The action is identified by the
+	 * given clip and an optional root object. Before using this method make
+	 * sure to call {@link AnimationAction#stop} to deactivate the action.
+	 *
+	 * @param {AnimationClip|string} clip - An animation clip or alternatively the name of the animation clip.
+	 * @param {Object3D} [optionalRoot] - An alternative root object.
+	 */
+	uncacheAction( clip, optionalRoot ) {
 
-		var action = this.existingAction( clip, optionalRoot );
+		const action = this.existingAction( clip, optionalRoot );
 
 		if ( action !== null ) {
 
@@ -47052,7 +48215,7 @@ AnimationMixer.prototype = Object.assign( Object.create( EventDispatcher.prototy
 
 	}
 
-} );
+}
 
 /**
  * @author mrdoob / http://mrdoob.com/
@@ -47111,6 +48274,22 @@ InstancedInterleavedBuffer.prototype = Object.assign( Object.create( Interleaved
  * @author mrdoob / http://mrdoob.com/
  * @author bhouston / http://clara.io/
  * @author stephomi / http://stephaneginier.com/
+ *
+ * backport from r185 (升级差距分析说明 3.0 §2.5)
+ *
+ * 与官方 r185 的刻意分歧(文件头注明, 均为保护现网拾取语义):
+ * 1. intersectObject(s) 的 recursive 默认值保持 r110 的 false(官方 r185 为 true);
+ * 2. 保留 r110 的 object.visible === false 跳过逻辑(官方 r113 起移除、只按 layers 过滤;
+ *    现网 highlight()/renderBoundingboxMeshes 依赖 visible 语义);
+ * 3. raycaster.layers 默认全通(enableAll, 官方默认仅 layer 0): r110 的 Raycaster 不看
+ *    layers, 现网 LDrawBatchedPartStore 依赖「面 mesh 切隐藏图层后仍可拾取」;
+ *    需要过滤时显式 raycaster.layers.set(n) 即得官方语义;
+ * 4. setFromXRController 不移植(小程序无 XR)。
+ *
+ * 从 r185 引入:
+ * - raycaster.layers 过滤(object.layers.test(raycaster.layers), 未设置过 layers 的对象恒通过);
+ * - params.Line.threshold(线拾取阈值可调, Line.raycast 同步消费);
+ * - object.raycast 返回 false 时停止向子树传播(r185 语义, r110 的 raycast 返回 undefined 不受影响)。
  */
 
 function Raycaster( origin, direction, near, far ) {
@@ -47121,10 +48300,12 @@ function Raycaster( origin, direction, near, far ) {
 	this.near = near || 0;
 	this.far = far || Infinity;
 	this.camera = null;
+	this.layers = new Layers();
+	this.layers.enableAll(); // 刻意分歧 #3: 默认全通, 兼容 r110「拾取不看 layers」语义
 
 	this.params = {
 		Mesh: {},
-		Line: {},
+		Line: { threshold: 1 },
 		LOD: {},
 		Points: { threshold: 1 },
 		Sprite: {}
@@ -47149,19 +48330,28 @@ function ascSort( a, b ) {
 
 }
 
-function intersectObject( object, raycaster, intersects, recursive ) {
+function intersect( object, raycaster, intersects, recursive ) {
 
+	// r110 保留: 不可见对象整体跳过(见文件头刻意分歧 #2)
 	if ( object.visible === false ) return;
 
-	object.raycast( raycaster, intersects );
+	var propagate = true;
 
-	if ( recursive === true ) {
+	if ( object.layers.test( raycaster.layers ) ) {
+
+		var result = object.raycast( raycaster, intersects );
+
+		if ( result === false ) propagate = false;
+
+	}
+
+	if ( propagate === true && recursive === true ) {
 
 		var children = object.children;
 
 		for ( var i = 0, l = children.length; i < l; i ++ ) {
 
-			intersectObject( children[ i ], raycaster, intersects, true );
+			intersect( children[ i ], raycaster, intersects, true );
 
 		}
 
@@ -47207,7 +48397,7 @@ Object.assign( Raycaster.prototype, {
 
 		var intersects = optionalTarget || [];
 
-		intersectObject( object, this, intersects, recursive );
+		intersect( object, this, intersects, recursive );
 
 		intersects.sort( ascSort );
 
@@ -47228,7 +48418,7 @@ Object.assign( Raycaster.prototype, {
 
 		for ( var i = 0, l = objects.length; i < l; i ++ ) {
 
-			intersectObject( objects[ i ], this, intersects, recursive );
+			intersect( objects[ i ], this, intersects, recursive );
 
 		}
 
@@ -51520,4 +52710,4 @@ if ( typeof __THREE_DEVTOOLS__ !== 'undefined' ) {
 
 }
 
-export { ACESFilmicToneMapping, AddEquation, AddOperation, AdditiveBlending, AlphaFormat, AlwaysDepth, AlwaysStencilFunc, AmbientLight, AmbientLightProbe, AnimationClip, AnimationLoader, AnimationMixer, AnimationObjectGroup, AnimationUtils, ArcCurve, ArrayCamera, ArrowHelper, Audio, AudioAnalyser, AudioContext, AudioListener, AudioLoader, AxesHelper, AxisHelper, BackSide, BasicDepthPacking, BasicShadowMap, BatchedMesh, BinaryTextureLoader, Bone, BooleanKeyframeTrack, BoundingBoxHelper, Box2, Box3, Box3Helper, BoxBufferGeometry, BoxGeometry, BoxHelper, BufferAttribute, BufferGeometry, BufferGeometryLoader, ByteType, Cache, Camera, CameraHelper, CanvasRenderer, CanvasTexture, CatmullRomCurve3, CineonToneMapping, CircleBufferGeometry, CircleGeometry, ClampToEdgeWrapping, Clock, ClosedSplineCurve3, Color, ColorKeyframeTrack, CompressedTexture, CompressedTextureLoader, ConeBufferGeometry, ConeGeometry, CubeCamera, BoxGeometry as CubeGeometry, CubeReflectionMapping, CubeRefractionMapping, CubeTexture, CubeTextureLoader, CubeUVReflectionMapping, CubeUVRefractionMapping, CubicBezierCurve, CubicBezierCurve3, CubicInterpolant, CullFaceBack, CullFaceFront, CullFaceFrontBack, CullFaceNone, Curve, CurvePath, CustomBlending, CylinderBufferGeometry, CylinderGeometry, Cylindrical, DataTexture, DataTexture2DArray, DataTexture3D, DataTextureLoader, DecrementStencilOp, DecrementWrapStencilOp, DefaultLoadingManager, DepthFormat, DepthStencilFormat, DepthTexture, DirectionalLight, DirectionalLightHelper, DirectionalLightShadow, DiscreteInterpolant, DodecahedronBufferGeometry, DodecahedronGeometry, DoubleSide, DstAlphaFactor, DstColorFactor, DynamicBufferAttribute, DynamicCopyUsage, DynamicDrawUsage, DynamicReadUsage, EdgesGeometry, EdgesHelper, EllipseCurve, EqualDepth, EqualStencilFunc, EquirectangularReflectionMapping, EquirectangularRefractionMapping, Euler, EventDispatcher, ExtrudeBufferGeometry, ExtrudeGeometry, Face3, Face4, FaceColors, FaceNormalsHelper, FileLoader, FlatShading, Float32Attribute, Float32BufferAttribute, Float64Attribute, Float64BufferAttribute, FloatType, Fog, FogExp2, Font, FontLoader, FrontFaceDirectionCCW, FrontFaceDirectionCW, FrontSide, Frustum, GammaEncoding, Geometry, GeometryUtils, GreaterDepth, GreaterEqualDepth, GreaterEqualStencilFunc, GreaterStencilFunc, GridHelper, Group, HalfFloatType, HemisphereLight, HemisphereLightHelper, HemisphereLightProbe, IcosahedronBufferGeometry, IcosahedronGeometry, ImageBitmapLoader, ImageLoader, ImageUtils, ImmediateRenderObject, IncrementStencilOp, IncrementWrapStencilOp, InstancedBufferAttribute, InstancedBufferGeometry, InstancedInterleavedBuffer, InstancedMesh, Int16Attribute, Int16BufferAttribute, Int32Attribute, Int32BufferAttribute, Int8Attribute, Int8BufferAttribute, IntType, InterleavedBuffer, InterleavedBufferAttribute, Interpolant, InterpolateDiscrete, InterpolateLinear, InterpolateSmooth, InvertStencilOp, JSONLoader, KeepStencilOp, KeyframeTrack, LOD, LatheBufferGeometry, LatheGeometry, Layers, LensFlare, LessDepth, LessEqualDepth, LessEqualStencilFunc, LessStencilFunc, Light, LightProbe, LightProbeHelper, LightShadow, Line, Line3, LineBasicMaterial, LineCurve, LineCurve3, LineDashedMaterial, LineLoop, LinePieces, LineSegments, LineStrip, LinearEncoding, LinearFilter, LinearInterpolant, LinearMipMapLinearFilter, LinearMipMapNearestFilter, LinearMipmapLinearFilter, LinearMipmapNearestFilter, LinearToneMapping, Loader, LoaderUtils, LoadingManager, LogLuvEncoding, LoopOnce, LoopPingPong, LoopRepeat, LuminanceAlphaFormat, LuminanceFormat, MOUSE, Material, MaterialLoader, _Math as Math, Matrix3, Matrix4, MaxEquation, Mesh, MeshBasicMaterial, MeshDepthMaterial, MeshDistanceMaterial, MeshFaceMaterial, MeshLambertMaterial, MeshMatcapMaterial, MeshNormalMaterial, MeshPhongMaterial, MeshPhysicalMaterial, MeshStandardMaterial, MeshToonMaterial, MinEquation, MirroredRepeatWrapping, MixOperation, MultiMaterial, MultiplyBlending, MultiplyOperation, NearestFilter, NearestMipMapLinearFilter, NearestMipMapNearestFilter, NearestMipmapLinearFilter, NearestMipmapNearestFilter, NeverDepth, NeverStencilFunc, NoBlending, NoColors, NoToneMapping, NormalBlending, NotEqualDepth, NotEqualStencilFunc, NumberKeyframeTrack, Object3D, ObjectLoader, ObjectSpaceNormalMap, OctahedronBufferGeometry, OctahedronGeometry, OneFactor, OneMinusDstAlphaFactor, OneMinusDstColorFactor, OneMinusSrcAlphaFactor, OneMinusSrcColorFactor, OrthographicCamera, PCFShadowMap, PCFSoftShadowMap, ParametricBufferGeometry, ParametricGeometry, Particle, ParticleBasicMaterial, ParticleSystem, ParticleSystemMaterial, Path, PerspectiveCamera, Plane, PlaneBufferGeometry, PlaneGeometry, PlaneHelper, PointCloud, PointCloudMaterial, PointLight, PointLightHelper, Points, PointsMaterial, PolarGridHelper, PolyhedronBufferGeometry, PolyhedronGeometry, PositionalAudio, PositionalAudioHelper, PropertyBinding, PropertyMixer, QuadraticBezierCurve, QuadraticBezierCurve3, Quaternion, QuaternionKeyframeTrack, QuaternionLinearInterpolant, REVISION, RGBADepthPacking, RGBAFormat, RGBA_ASTC_10x10_Format, RGBA_ASTC_10x5_Format, RGBA_ASTC_10x6_Format, RGBA_ASTC_10x8_Format, RGBA_ASTC_12x10_Format, RGBA_ASTC_12x12_Format, RGBA_ASTC_4x4_Format, RGBA_ASTC_5x4_Format, RGBA_ASTC_5x5_Format, RGBA_ASTC_6x5_Format, RGBA_ASTC_6x6_Format, RGBA_ASTC_8x5_Format, RGBA_ASTC_8x6_Format, RGBA_ASTC_8x8_Format, RGBA_PVRTC_2BPPV1_Format, RGBA_PVRTC_4BPPV1_Format, RGBA_S3TC_DXT1_Format, RGBA_S3TC_DXT3_Format, RGBA_S3TC_DXT5_Format, RGBDEncoding, RGBEEncoding, RGBEFormat, RGBFormat, RGBM16Encoding, RGBM7Encoding, RGB_ETC1_Format, RGB_PVRTC_2BPPV1_Format, RGB_PVRTC_4BPPV1_Format, RGB_S3TC_DXT1_Format, RawShaderMaterial, Ray, Raycaster, RectAreaLight, RectAreaLightHelper, RedFormat, ReinhardToneMapping, RepeatWrapping, ReplaceStencilOp, ReverseSubtractEquation, RingBufferGeometry, RingGeometry, Scene, SceneUtils, ShaderChunk, ShaderLib, ShaderMaterial, ShadowMaterial, Shape, ShapeBufferGeometry, ShapeGeometry, ShapePath, ShapeUtils, ShortType, Skeleton, SkeletonHelper, SkinnedMesh, SmoothShading, Sphere, SphereBufferGeometry, SphereGeometry, Spherical, SphericalHarmonics3, SphericalReflectionMapping, Spline, SplineCurve, SplineCurve3, SpotLight, SpotLightHelper, SpotLightShadow, Sprite, SpriteMaterial, SrcAlphaFactor, SrcAlphaSaturateFactor, SrcColorFactor, StaticCopyUsage, StaticDrawUsage, StaticReadUsage, StereoCamera, StreamCopyUsage, StreamDrawUsage, StreamReadUsage, StringKeyframeTrack, SubtractEquation, SubtractiveBlending, TOUCH, TangentSpaceNormalMap, TetrahedronBufferGeometry, TetrahedronGeometry, TextBufferGeometry, TextGeometry, Texture, TextureLoader, TorusBufferGeometry, TorusGeometry, TorusKnotBufferGeometry, TorusKnotGeometry, Triangle, TriangleFanDrawMode, TriangleStripDrawMode, TrianglesDrawMode, TubeBufferGeometry, TubeGeometry, UVMapping, Uint16Attribute, Uint16BufferAttribute, Uint32Attribute, Uint32BufferAttribute, Uint8Attribute, Uint8BufferAttribute, Uint8ClampedAttribute, Uint8ClampedBufferAttribute, Uncharted2ToneMapping, Uniform, UniformsLib, UniformsUtils, UnsignedByteType, UnsignedInt248Type, UnsignedIntType, UnsignedShort4444Type, UnsignedShort5551Type, UnsignedShort565Type, UnsignedShortType, VSMShadowMap, Vector2, Vector3, Vector4, VectorKeyframeTrack, Vertex, VertexColors, VertexNormalsHelper, VideoTexture, WebGLMultisampleRenderTarget, WebGLRenderTarget, WebGLRenderTargetCube, WebGLRenderer, WebGLUtils, WireframeGeometry, WireframeHelper, WrapAroundEnding, XHRLoader, ZeroCurvatureEnding, ZeroFactor, ZeroSlopeEnding, ZeroStencilOp, global, sRGBEncoding };
+export { ACESFilmicToneMapping, AddEquation, AddOperation, AdditiveAnimationBlendMode, AdditiveBlending, AlphaFormat, AlwaysDepth, AlwaysStencilFunc, AmbientLight, AmbientLightProbe, AnimationClip, AnimationLoader, AnimationMixer, AnimationObjectGroup, AnimationUtils, ArcCurve, ArrayCamera, ArrowHelper, Audio, AudioAnalyser, AudioContext, AudioListener, AudioLoader, AxesHelper, AxisHelper, BackSide, BasicDepthPacking, BasicShadowMap, BatchedMesh, BinaryTextureLoader, Bone, BooleanKeyframeTrack, BoundingBoxHelper, Box2, Box3, Box3Helper, BoxBufferGeometry, BoxGeometry, BoxHelper, BufferAttribute, BufferGeometry, BufferGeometryLoader, ByteType, Cache, Camera, CameraHelper, CanvasRenderer, CanvasTexture, CatmullRomCurve3, CineonToneMapping, CircleBufferGeometry, CircleGeometry, ClampToEdgeWrapping, Clock, ClosedSplineCurve3, Color, ColorKeyframeTrack, ColorManagement, CompressedTexture, CompressedTextureLoader, ConeBufferGeometry, ConeGeometry, CubeCamera, BoxGeometry as CubeGeometry, CubeReflectionMapping, CubeRefractionMapping, CubeTexture, CubeTextureLoader, CubeUVReflectionMapping, CubeUVRefractionMapping, CubicBezierCurve, CubicBezierCurve3, CubicInterpolant, CullFaceBack, CullFaceFront, CullFaceFrontBack, CullFaceNone, Curve, CurvePath, CustomBlending, CylinderBufferGeometry, CylinderGeometry, Cylindrical, DataTexture, DataTexture2DArray, DataTexture3D, DataTextureLoader, DecrementStencilOp, DecrementWrapStencilOp, DefaultLoadingManager, DepthFormat, DepthStencilFormat, DepthTexture, DirectionalLight, DirectionalLightHelper, DirectionalLightShadow, DiscreteInterpolant, DodecahedronBufferGeometry, DodecahedronGeometry, DoubleSide, DstAlphaFactor, DstColorFactor, DynamicBufferAttribute, DynamicCopyUsage, DynamicDrawUsage, DynamicReadUsage, EdgesGeometry, EdgesHelper, EllipseCurve, EqualDepth, EqualStencilFunc, EquirectangularReflectionMapping, EquirectangularRefractionMapping, Euler, EventDispatcher, ExtrudeBufferGeometry, ExtrudeGeometry, Face3, Face4, FaceColors, FaceNormalsHelper, FileLoader, FlatShading, Float32Attribute, Float32BufferAttribute, Float64Attribute, Float64BufferAttribute, FloatType, Fog, FogExp2, Font, FontLoader, FrontFaceDirectionCCW, FrontFaceDirectionCW, FrontSide, Frustum, GammaEncoding, Geometry, GeometryUtils, GreaterDepth, GreaterEqualDepth, GreaterEqualStencilFunc, GreaterStencilFunc, GridHelper, Group, HalfFloatType, HemisphereLight, HemisphereLightHelper, HemisphereLightProbe, IcosahedronBufferGeometry, IcosahedronGeometry, ImageBitmapLoader, ImageLoader, ImageUtils, ImmediateRenderObject, IncrementStencilOp, IncrementWrapStencilOp, InstancedBufferAttribute, InstancedBufferGeometry, InstancedInterleavedBuffer, InstancedMesh, Int16Attribute, Int16BufferAttribute, Int32Attribute, Int32BufferAttribute, Int8Attribute, Int8BufferAttribute, IntType, InterleavedBuffer, InterleavedBufferAttribute, Interpolant, InterpolateDiscrete, InterpolateLinear, InterpolateSmooth, InvertStencilOp, JSONLoader, KeepStencilOp, KeyframeTrack, LOD, LatheBufferGeometry, LatheGeometry, Layers, LensFlare, LessDepth, LessEqualDepth, LessEqualStencilFunc, LessStencilFunc, Light, LightProbe, LightProbeHelper, LightShadow, Line, Line3, LineBasicMaterial, LineCurve, LineCurve3, LineDashedMaterial, LineLoop, LinePieces, LineSegments, LineStrip, LinearEncoding, LinearFilter, LinearInterpolant, LinearMipMapLinearFilter, LinearMipMapNearestFilter, LinearMipmapLinearFilter, LinearMipmapNearestFilter, LinearSRGBColorSpace, LinearToSRGB, LinearToneMapping, LinearTransfer, Loader, LoaderUtils, LoadingManager, LogLuvEncoding, LoopOnce, LoopPingPong, LoopRepeat, LuminanceAlphaFormat, LuminanceFormat, MOUSE, Material, MaterialLoader, _Math as Math, Matrix3, Matrix4, MaxEquation, Mesh, MeshBasicMaterial, MeshDepthMaterial, MeshDistanceMaterial, MeshFaceMaterial, MeshLambertMaterial, MeshMatcapMaterial, MeshNormalMaterial, MeshPhongMaterial, MeshPhysicalMaterial, MeshStandardMaterial, MeshToonMaterial, MinEquation, MirroredRepeatWrapping, MixOperation, MultiMaterial, MultiplyBlending, MultiplyOperation, NearestFilter, NearestMipMapLinearFilter, NearestMipMapNearestFilter, NearestMipmapLinearFilter, NearestMipmapNearestFilter, NeverDepth, NeverStencilFunc, NoBlending, NoColorSpace, NoColors, NoToneMapping, NormalAnimationBlendMode, NormalBlending, NotEqualDepth, NotEqualStencilFunc, NumberKeyframeTrack, Object3D, ObjectLoader, ObjectSpaceNormalMap, OctahedronBufferGeometry, OctahedronGeometry, OneFactor, OneMinusDstAlphaFactor, OneMinusDstColorFactor, OneMinusSrcAlphaFactor, OneMinusSrcColorFactor, OrthographicCamera, PCFShadowMap, PCFSoftShadowMap, ParametricBufferGeometry, ParametricGeometry, Particle, ParticleBasicMaterial, ParticleSystem, ParticleSystemMaterial, Path, PerspectiveCamera, Plane, PlaneBufferGeometry, PlaneGeometry, PlaneHelper, PointCloud, PointCloudMaterial, PointLight, PointLightHelper, Points, PointsMaterial, PolarGridHelper, PolyhedronBufferGeometry, PolyhedronGeometry, PositionalAudio, PositionalAudioHelper, PropertyBinding, PropertyMixer, QuadraticBezierCurve, QuadraticBezierCurve3, Quaternion, QuaternionKeyframeTrack, QuaternionLinearInterpolant, REVISION, RGBADepthPacking, RGBAFormat, RGBA_ASTC_10x10_Format, RGBA_ASTC_10x5_Format, RGBA_ASTC_10x6_Format, RGBA_ASTC_10x8_Format, RGBA_ASTC_12x10_Format, RGBA_ASTC_12x12_Format, RGBA_ASTC_4x4_Format, RGBA_ASTC_5x4_Format, RGBA_ASTC_5x5_Format, RGBA_ASTC_6x5_Format, RGBA_ASTC_6x6_Format, RGBA_ASTC_8x5_Format, RGBA_ASTC_8x6_Format, RGBA_ASTC_8x8_Format, RGBA_PVRTC_2BPPV1_Format, RGBA_PVRTC_4BPPV1_Format, RGBA_S3TC_DXT1_Format, RGBA_S3TC_DXT3_Format, RGBA_S3TC_DXT5_Format, RGBDEncoding, RGBEEncoding, RGBEFormat, RGBFormat, RGBM16Encoding, RGBM7Encoding, RGB_ETC1_Format, RGB_PVRTC_2BPPV1_Format, RGB_PVRTC_4BPPV1_Format, RGB_S3TC_DXT1_Format, RawShaderMaterial, Ray, Raycaster, RectAreaLight, RectAreaLightHelper, RedFormat, ReinhardToneMapping, RepeatWrapping, ReplaceStencilOp, ReverseSubtractEquation, RingBufferGeometry, RingGeometry, SRGBColorSpace, SRGBToLinear, SRGBTransfer, Scene, SceneUtils, ShaderChunk, ShaderLib, ShaderMaterial, ShadowMaterial, Shape, ShapeBufferGeometry, ShapeGeometry, ShapePath, ShapeUtils, ShortType, Skeleton, SkeletonHelper, SkinnedMesh, SmoothShading, Sphere, SphereBufferGeometry, SphereGeometry, Spherical, SphericalHarmonics3, SphericalReflectionMapping, Spline, SplineCurve, SplineCurve3, SpotLight, SpotLightHelper, SpotLightShadow, Sprite, SpriteMaterial, SrcAlphaFactor, SrcAlphaSaturateFactor, SrcColorFactor, StaticCopyUsage, StaticDrawUsage, StaticReadUsage, StereoCamera, StreamCopyUsage, StreamDrawUsage, StreamReadUsage, StringKeyframeTrack, SubtractEquation, SubtractiveBlending, TOUCH, TangentSpaceNormalMap, TetrahedronBufferGeometry, TetrahedronGeometry, TextBufferGeometry, TextGeometry, Texture, TextureLoader, TorusBufferGeometry, TorusGeometry, TorusKnotBufferGeometry, TorusKnotGeometry, Triangle, TriangleFanDrawMode, TriangleStripDrawMode, TrianglesDrawMode, TubeBufferGeometry, TubeGeometry, UVMapping, Uint16Attribute, Uint16BufferAttribute, Uint32Attribute, Uint32BufferAttribute, Uint8Attribute, Uint8BufferAttribute, Uint8ClampedAttribute, Uint8ClampedBufferAttribute, Uncharted2ToneMapping, Uniform, UniformsLib, UniformsUtils, UnsignedByteType, UnsignedInt248Type, UnsignedIntType, UnsignedShort4444Type, UnsignedShort5551Type, UnsignedShort565Type, UnsignedShortType, VSMShadowMap, Vector2, Vector3, Vector4, VectorKeyframeTrack, Vertex, VertexColors, VertexNormalsHelper, VideoTexture, WebGLMultisampleRenderTarget, WebGLRenderTarget, WebGLRenderTargetCube, WebGLRenderer, WebGLUtils, WireframeGeometry, WireframeHelper, WrapAroundEnding, XHRLoader, ZeroCurvatureEnding, ZeroFactor, ZeroSlopeEnding, ZeroStencilOp, global, sRGBEncoding };

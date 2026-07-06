@@ -1,7 +1,13 @@
 import { _Math } from './Math.js';
+import { ColorManagement } from './ColorManagement.js';
+import { SRGBColorSpace } from '../constants.js';
 
 /**
  * @author mrdoob / http://mrdoob.com/
+ *
+ * backport from r185(部分): set 系入口按 r185 对齐, 支持可选 colorSpace 参数并经
+ * ColorManagement 做 sRGB→working 转换。ColorManagement.enabled 默认 false(见该文件头),
+ * 关闭时全部入口行为与 r110 逐位一致。
  */
 
 var _colorKeywords = { 'aliceblue': 0xF0F8FF, 'antiquewhite': 0xFAEBD7, 'aqua': 0x00FFFF, 'aquamarine': 0x7FFFD4, 'azure': 0xF0FFFF,
@@ -31,6 +37,7 @@ var _colorKeywords = { 'aliceblue': 0xF0F8FF, 'antiquewhite': 0xFAEBD7, 'aqua': 
 
 var _hslA = { h: 0, s: 0, l: 0 };
 var _hslB = { h: 0, s: 0, l: 0 };
+var _colorTemp;
 
 function Color( r, g, b ) {
 
@@ -104,7 +111,9 @@ Object.assign( Color.prototype, {
 
 	},
 
-	setHex: function ( hex ) {
+	setHex: function ( hex, colorSpace ) {
+
+		if ( colorSpace === undefined ) colorSpace = SRGBColorSpace;
 
 		hex = Math.floor( hex );
 
@@ -112,21 +121,29 @@ Object.assign( Color.prototype, {
 		this.g = ( hex >> 8 & 255 ) / 255;
 		this.b = ( hex & 255 ) / 255;
 
+		ColorManagement.colorSpaceToWorking( this, colorSpace );
+
 		return this;
 
 	},
 
-	setRGB: function ( r, g, b ) {
+	setRGB: function ( r, g, b, colorSpace ) {
+
+		if ( colorSpace === undefined ) colorSpace = ColorManagement.workingColorSpace;
 
 		this.r = r;
 		this.g = g;
 		this.b = b;
 
+		ColorManagement.colorSpaceToWorking( this, colorSpace );
+
 		return this;
 
 	},
 
-	setHSL: function ( h, s, l ) {
+	setHSL: function ( h, s, l, colorSpace ) {
+
+		if ( colorSpace === undefined ) colorSpace = ColorManagement.workingColorSpace;
 
 		// h,s,l ranges are in 0.0 - 1.0
 		h = _Math.euclideanModulo( h, 1 );
@@ -148,11 +165,15 @@ Object.assign( Color.prototype, {
 
 		}
 
+		ColorManagement.colorSpaceToWorking( this, colorSpace );
+
 		return this;
 
 	},
 
-	setStyle: function ( style ) {
+	setStyle: function ( style, colorSpace ) {
+
+		if ( colorSpace === undefined ) colorSpace = SRGBColorSpace;
 
 		function handleAlpha( string ) {
 
@@ -189,6 +210,8 @@ Object.assign( Color.prototype, {
 						this.g = Math.min( 255, parseInt( color[ 2 ], 10 ) ) / 255;
 						this.b = Math.min( 255, parseInt( color[ 3 ], 10 ) ) / 255;
 
+						ColorManagement.colorSpaceToWorking( this, colorSpace );
+
 						handleAlpha( color[ 5 ] );
 
 						return this;
@@ -201,6 +224,8 @@ Object.assign( Color.prototype, {
 						this.r = Math.min( 100, parseInt( color[ 1 ], 10 ) ) / 100;
 						this.g = Math.min( 100, parseInt( color[ 2 ], 10 ) ) / 100;
 						this.b = Math.min( 100, parseInt( color[ 3 ], 10 ) ) / 100;
+
+						ColorManagement.colorSpaceToWorking( this, colorSpace );
 
 						handleAlpha( color[ 5 ] );
 
@@ -222,7 +247,7 @@ Object.assign( Color.prototype, {
 
 						handleAlpha( color[ 5 ] );
 
-						return this.setHSL( h, s, l );
+						return this.setHSL( h, s, l, colorSpace );
 
 					}
 
@@ -244,6 +269,8 @@ Object.assign( Color.prototype, {
 				this.g = parseInt( hex.charAt( 1 ) + hex.charAt( 1 ), 16 ) / 255;
 				this.b = parseInt( hex.charAt( 2 ) + hex.charAt( 2 ), 16 ) / 255;
 
+				ColorManagement.colorSpaceToWorking( this, colorSpace );
+
 				return this;
 
 			} else if ( size === 6 ) {
@@ -253,6 +280,8 @@ Object.assign( Color.prototype, {
 				this.g = parseInt( hex.charAt( 2 ) + hex.charAt( 3 ), 16 ) / 255;
 				this.b = parseInt( hex.charAt( 4 ) + hex.charAt( 5 ), 16 ) / 255;
 
+				ColorManagement.colorSpaceToWorking( this, colorSpace );
+
 				return this;
 
 			}
@@ -261,7 +290,7 @@ Object.assign( Color.prototype, {
 
 		if ( style && style.length > 0 ) {
 
-			return this.setColorName( style );
+			return this.setColorName( style, colorSpace );
 
 		}
 
@@ -269,7 +298,9 @@ Object.assign( Color.prototype, {
 
 	},
 
-	setColorName: function ( style ) {
+	setColorName: function ( style, colorSpace ) {
+
+		if ( colorSpace === undefined ) colorSpace = SRGBColorSpace;
 
 		// color keywords
 		var hex = _colorKeywords[ style ];
@@ -277,7 +308,7 @@ Object.assign( Color.prototype, {
 		if ( hex !== undefined ) {
 
 			// red
-			this.setHex( hex );
+			this.setHex( hex, colorSpace );
 
 		} else {
 
@@ -384,19 +415,24 @@ Object.assign( Color.prototype, {
 
 	},
 
-	getHex: function () {
+	getHex: function ( colorSpace ) {
 
-		return ( this.r * 255 ) << 16 ^ ( this.g * 255 ) << 8 ^ ( this.b * 255 ) << 0;
+		if ( colorSpace === undefined ) colorSpace = SRGBColorSpace;
+
+		// r110 兼容: 转换在临时色上进行(禁用色彩管理时与旧版逐位一致, 保留旧版截断语义)
+		ColorManagement.workingToColorSpace( _colorTemp.copy( this ), colorSpace );
+
+		return ( _colorTemp.r * 255 ) << 16 ^ ( _colorTemp.g * 255 ) << 8 ^ ( _colorTemp.b * 255 ) << 0;
 
 	},
 
-	getHexString: function () {
+	getHexString: function ( colorSpace ) {
 
-		return ( '000000' + this.getHex().toString( 16 ) ).slice( - 6 );
+		return ( '000000' + this.getHex( colorSpace ).toString( 16 ) ).slice( - 6 );
 
 	},
 
-	getHSL: function ( target ) {
+	getHSL: function ( target, colorSpace ) {
 
 		// h,s,l ranges are in 0.0 - 1.0
 
@@ -407,7 +443,11 @@ Object.assign( Color.prototype, {
 
 		}
 
-		var r = this.r, g = this.g, b = this.b;
+		if ( colorSpace === undefined ) colorSpace = ColorManagement.workingColorSpace;
+
+		ColorManagement.workingToColorSpace( _colorTemp.copy( this ), colorSpace );
+
+		var r = _colorTemp.r, g = _colorTemp.g, b = _colorTemp.b;
 
 		var max = Math.max( r, g, b );
 		var min = Math.min( r, g, b );
@@ -446,9 +486,27 @@ Object.assign( Color.prototype, {
 
 	},
 
-	getStyle: function () {
+	getStyle: function ( colorSpace ) {
 
-		return 'rgb(' + ( ( this.r * 255 ) | 0 ) + ',' + ( ( this.g * 255 ) | 0 ) + ',' + ( ( this.b * 255 ) | 0 ) + ')';
+		if ( colorSpace === undefined ) colorSpace = SRGBColorSpace;
+
+		ColorManagement.workingToColorSpace( _colorTemp.copy( this ), colorSpace );
+
+		return 'rgb(' + ( ( _colorTemp.r * 255 ) | 0 ) + ',' + ( ( _colorTemp.g * 255 ) | 0 ) + ',' + ( ( _colorTemp.b * 255 ) | 0 ) + ')';
+
+	},
+
+	// backport from r185: ColorManagement 跨 primaries 转换依赖
+	applyMatrix3: function ( m ) {
+
+		var r = this.r, g = this.g, b = this.b;
+		var e = m.elements;
+
+		this.r = e[ 0 ] * r + e[ 3 ] * g + e[ 6 ] * b;
+		this.g = e[ 1 ] * r + e[ 4 ] * g + e[ 7 ] * b;
+		this.b = e[ 2 ] * r + e[ 5 ] * g + e[ 8 ] * b;
+
+		return this;
 
 	},
 
@@ -589,5 +647,7 @@ Object.assign( Color.prototype, {
 } );
 
 Color.NAMES = _colorKeywords;
+
+_colorTemp = new Color();
 
 export { Color };

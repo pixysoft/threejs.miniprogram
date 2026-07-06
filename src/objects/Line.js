@@ -93,7 +93,11 @@ Line.prototype = Object.assign( Object.create( Object3D.prototype ), {
 
 	raycast: function ( raycaster, intersects ) {
 
-		var precision = raycaster.linePrecision;
+		// backport from r185: 阈值优先取 params.Line.threshold(世界单位, 可调),
+		// 兼容 r110 旧 API linePrecision(默认两者同为 1, 行为不变)
+		var precision = ( raycaster.params.Line && raycaster.params.Line.threshold !== undefined )
+			? raycaster.params.Line.threshold
+			: raycaster.linePrecision;
 
 		var geometry = this.geometry;
 		var matrixWorld = this.matrixWorld;

@@ -372,6 +372,284 @@ const fakeGL = {
 const caps = THREE.global.detectCapabilities( fakeGL );
 assert( 'detectCapabilities 返回 multiDraw 探测项', caps.multiDraw === true && caps.instancing === true && caps.floatTexture === false );
 
+// ---- 15. capabilities 增强: compressedFormats / halfFloatRenderable / elementIndexUint ----
+
+assert( 'detectCapabilities 无扩展时 compressedFormats 全 false',
+	caps.compressedFormats !== undefined &&
+	caps.compressedFormats.etc1 === false && caps.compressedFormats.etc2 === false &&
+	caps.compressedFormats.astc === false && caps.compressedFormats.pvrtc === false &&
+	caps.compressedFormats.s3tc === false );
+assert( 'detectCapabilities 无 half float 扩展时 halfFloatRenderable=false', caps.halfFloatRenderable === false );
+assert( 'detectCapabilities 无扩展时 elementIndexUint=false', caps.elementIndexUint === false );
+
+// half float 可渲染: 声明扩展 + FBO 实测通过(借鉴 Cocos "声明支持 ≠ 可渲染")
+const fakeGL2 = {
+	FLOAT: 5126,
+	TEXTURE_2D: 3553,
+	RGBA: 6408,
+	FRAMEBUFFER: 36160,
+	COLOR_ATTACHMENT0: 36064,
+	FRAMEBUFFER_COMPLETE: 36053,
+	MAX_VERTEX_TEXTURE_IMAGE_UNITS: 35660,
+	_lastTexImageType: null,
+	getExtension: function ( name ) {
+
+		if ( name === 'OES_texture_half_float' ) return { HALF_FLOAT_OES: 36193 };
+		if ( name === 'OES_texture_float' || name === 'OES_element_index_uint' ) return {};
+		if ( name === 'WEBGL_compressed_texture_etc1' || name === 'WEBGL_compressed_texture_astc' ) return {};
+		return null;
+
+	},
+	getParameter: function () { return 8; },
+	createTexture: function () { return {}; },
+	bindTexture: function () {},
+	texImage2D: function ( target, level, internalFormat, w, h, border, format, type ) { this._lastTexImageType = type; },
+	createFramebuffer: function () { return {}; },
+	bindFramebuffer: function () {},
+	framebufferTexture2D: function () {},
+	// float 可渲染, half float(36193) 不可渲染 —— 断言两者独立探测
+	checkFramebufferStatus: function () { return this._lastTexImageType === 36193 ? 0 : this.FRAMEBUFFER_COMPLETE; },
+	deleteFramebuffer: function () {},
+	deleteTexture: function () {}
+};
+const caps2 = THREE.global.detectCapabilities( fakeGL2 );
+assert( 'detectCapabilities float 可渲染 FBO 实测通过', caps2.floatRenderable === true );
+assert( 'detectCapabilities half float 声明支持但 FBO 实测不可渲染', caps2.halfFloatTexture === true && caps2.halfFloatRenderable === false );
+assert( 'detectCapabilities elementIndexUint 探测', caps2.elementIndexUint === true );
+assert( 'detectCapabilities compressedFormats 逐项枚举',
+	caps2.compressedFormats.etc1 === true && caps2.compressedFormats.astc === true &&
+	caps2.compressedFormats.etc2 === false && caps2.compressedFormats.pvrtc === false && caps2.compressedFormats.s3tc === false );
+assert( 'detectCapabilities 同一上下文结果缓存', THREE.global.detectCapabilities( fakeGL2 ) === caps2 );
+
+// ---- 16. Additive 动画混合(升级差距分析说明 3.0 §2.1) ----
+
+assert( '常量 NormalAnimationBlendMode = 2500', THREE.NormalAnimationBlendMode === 2500 );
+assert( '常量 AdditiveAnimationBlendMode = 2501', THREE.AdditiveAnimationBlendMode === 2501 );
+assert( 'Quaternion.multiplyQuaternionsFlat 已导出', typeof THREE.Quaternion.multiplyQuaternionsFlat === 'function' );
+assert( 'AnimationUtils.makeClipAdditive 已导出', typeof THREE.AnimationUtils.makeClipAdditive === 'function' );
+assert( 'AnimationUtils.arraySlice 保留(r110 KeyframeTrack 消费)', typeof THREE.AnimationUtils.arraySlice === 'function' );
+
+// multiplyQuaternionsFlat 与 Quaternion.multiply 对拍
+( function () {
+
+	const qa = new THREE.Quaternion().setFromAxisAngle( new THREE.Vector3( 0, 0, 1 ), Math.PI / 3 );
+	const qb = new THREE.Quaternion().setFromAxisAngle( new THREE.Vector3( 1, 0, 0 ), Math.PI / 5 );
+	const expected = qa.clone().multiply( qb );
+
+	const flat = new Float64Array( 12 );
+	qa.toArray( flat, 0 );
+	qb.toArray( flat, 4 );
+	THREE.Quaternion.multiplyQuaternionsFlat( flat, 8, flat, 0, flat, 4 );
+
+	assert( 'multiplyQuaternionsFlat 与 multiply 逐位一致',
+		flat[ 8 ] === expected.x && flat[ 9 ] === expected.y && flat[ 10 ] === expected.z && flat[ 11 ] === expected.w );
+
+} )();
+
+// 16.1 Normal 双 clip 混合结果与旧版语义逐位一致(加权平均 + 原值补权)
+( function () {
+
+	const node = new THREE.Object3D();
+	const mixer = new THREE.AnimationMixer( node );
+
+	const trackA = new THREE.VectorKeyframeTrack( '.position', [ 0, 1 ], [ 1, 0, 0, 1, 0, 0 ] );
+	const trackB = new THREE.VectorKeyframeTrack( '.position', [ 0, 1 ], [ 0, 1, 0, 0, 1, 0 ] );
+	const clipA = new THREE.AnimationClip( 'A', 1, [ trackA ] );
+	const clipB = new THREE.AnimationClip( 'B', 1, [ trackB ] );
+
+	const actionA = mixer.clipAction( clipA ).setEffectiveWeight( 0.25 ).play();
+	const actionB = mixer.clipAction( clipB ).setEffectiveWeight( 0.75 ).play();
+	mixer.update( 0.5 );
+
+	// 权重和 = 1: 期望 position = A*0.25 + B*0.75 = (0.25, 0.75, 0), 无原值参与
+	assert( 'Normal 双 clip 混合逐位一致(0.25/0.75 加权)',
+		node.position.x === 0.25 && node.position.y === 0.75 && node.position.z === 0 );
+
+	actionA.stop(); actionB.stop();
+
+	// 权重和 < 1: 原值补权 accu*w + orig*(1-w)
+	node.position.set( 8, 0, 0 );
+	const actionA2 = mixer.clipAction( clipA ).setEffectiveWeight( 0.5 ).play();
+	mixer.update( 0.01 );
+	assert( 'Normal 单 clip 半权重与原值补权一致(8*0.5 + 1*0.5)',
+		node.position.x === 4.5 && node.position.y === 0 && node.position.z === 0 );
+	actionA2.stop();
+
+} )();
+
+// 16.2 additive clip 叠加 = 手算期望
+( function () {
+
+	const node = new THREE.Object3D();
+	const mixer = new THREE.AnimationMixer( node );
+
+	// 基础层: 恒定位置 (10, 20, 30)
+	const baseTrack = new THREE.VectorKeyframeTrack( '.position', [ 0, 1 ], [ 10, 20, 30, 10, 20, 30 ] );
+	const baseClip = new THREE.AnimationClip( 'base', 1, [ baseTrack ] );
+
+	// 叠加层: 从 (1,1,1) 到 (3,1,1), 参考帧 0 -> 差值 clip 为 (0,0,0) 到 (2,0,0)
+	const addTrack = new THREE.VectorKeyframeTrack( '.position', [ 0, 1 ], [ 1, 1, 1, 3, 1, 1 ] );
+	const addClip = new THREE.AnimationClip( 'breathe', 1, [ addTrack ] );
+	THREE.AnimationUtils.makeClipAdditive( addClip );
+
+	assert( 'makeClipAdditive 置 blendMode 为 Additive', addClip.blendMode === THREE.AdditiveAnimationBlendMode );
+	assert( 'makeClipAdditive 差值化(首帧减参考值)',
+		addClip.tracks[ 0 ].values[ 0 ] === 0 && addClip.tracks[ 0 ].values[ 3 ] === 2 );
+
+	const baseAction = mixer.clipAction( baseClip ).play();
+	const addAction = mixer.clipAction( addClip, undefined, THREE.AdditiveAnimationBlendMode ).play();
+
+	assert( 'clipAction 第三参 blendMode 透传', addAction.blendMode === THREE.AdditiveAnimationBlendMode );
+
+	// t=0.5: 基础 (10,20,30) + 差值 (1,0,0) = (11,20,30)
+	mixer.update( 0.5 );
+	assert( 'additive 叠加 = 基础 + 差值(手算期望 11,20,30)',
+		node.position.x === 11 && node.position.y === 20 && node.position.z === 30 );
+
+	baseAction.stop(); addAction.stop();
+
+} )();
+
+// 16.3 additive 四元数叠加(基础 identity + 叠加 rotZ 90°)
+( function () {
+
+	const node = new THREE.Object3D();
+	const mixer = new THREE.AnimationMixer( node );
+
+	const qId = new THREE.Quaternion();
+	const qRot = new THREE.Quaternion().setFromAxisAngle( new THREE.Vector3( 0, 0, 1 ), Math.PI / 2 );
+
+	const baseTrack = new THREE.QuaternionKeyframeTrack( '.quaternion', [ 0, 1 ],
+		[ qId.x, qId.y, qId.z, qId.w, qId.x, qId.y, qId.z, qId.w ] );
+	const baseClip = new THREE.AnimationClip( 'idle', 1, [ baseTrack ] );
+
+	const addTrack = new THREE.QuaternionKeyframeTrack( '.quaternion', [ 0, 1 ],
+		[ qRot.x, qRot.y, qRot.z, qRot.w, qRot.x, qRot.y, qRot.z, qRot.w ] );
+	const addClip = new THREE.AnimationClip( 'aim', 1, [ addTrack ] );
+	// 参考 clip 用恒 identity 的 baseClip 结构: 参考帧值即 identity, 差值 = qRot 本身
+	THREE.AnimationUtils.makeClipAdditive( addClip, 0, new THREE.AnimationClip( 'ref', 1, [ new THREE.QuaternionKeyframeTrack( '.quaternion', [ 0, 1 ], [ qId.x, qId.y, qId.z, qId.w, qId.x, qId.y, qId.z, qId.w ] ) ] ) );
+
+	mixer.clipAction( baseClip ).play();
+	mixer.clipAction( addClip, undefined, THREE.AdditiveAnimationBlendMode ).play();
+	mixer.update( 0.25 );
+
+	const err = Math.abs( node.quaternion.x - qRot.x ) + Math.abs( node.quaternion.y - qRot.y ) +
+		Math.abs( node.quaternion.z - qRot.z ) + Math.abs( node.quaternion.w - qRot.w );
+	assert( 'additive 四元数叠加 identity ∘ rotZ90 = rotZ90 (误差 ' + err.toExponential( 2 ) + ')', err < 1e-12 );
+
+} )();
+
+// 16.4 AnimationUtils.subclip 裁剪
+( function () {
+
+	const track = new THREE.NumberKeyframeTrack( '.morphTargetInfluences[a]', [ 0, 1, 2, 3 ], [ 0, 10, 20, 30 ] );
+	const clip = new THREE.AnimationClip( 'full', - 1, [ track ] );
+	const sub = THREE.AnimationUtils.subclip( clip, 'part', 1, 3, 1 );
+
+	assert( 'subclip 裁剪帧区间且时间归零',
+		sub.name === 'part' && sub.tracks[ 0 ].times.length === 2 &&
+		sub.tracks[ 0 ].times[ 0 ] === 0 && sub.tracks[ 0 ].values[ 0 ] === 10 && sub.tracks[ 0 ].values[ 1 ] === 20 );
+
+} )();
+
+// ---- 17. ColorManagement(升级差距分析说明 3.0 §2.2) ----
+
+assert( 'ColorManagement 已导出且默认关闭(与官方刻意分歧)',
+	THREE.ColorManagement !== undefined && THREE.ColorManagement.enabled === false );
+
+// 17.1 enabled=false: 全部入口行为与 r110 逐位一致
+( function () {
+
+	const c = new THREE.Color( 0x808080 );
+	assert( 'enabled=false: setHex 不做转换(0x808080 -> 128/255)',
+		c.r === 128 / 255 && c.g === 128 / 255 && c.b === 128 / 255 );
+	assert( 'enabled=false: getHex 往返逐位一致', c.getHex() === 0x808080 );
+	assert( 'enabled=false: getStyle 与旧版一致', c.getStyle() === 'rgb(128,128,128)' );
+
+	const cs = new THREE.Color().setStyle( '#ff8000' );
+	assert( 'enabled=false: setStyle 十六进制不做转换', cs.r === 1 && cs.g === 128 / 255 && cs.b === 0 );
+
+	const hsl = new THREE.Color().setHSL( 0.5, 0.5, 0.5 ).getHSL( {} );
+	assert( 'enabled=false: setHSL/getHSL 往返一致',
+		Math.abs( hsl.h - 0.5 ) < 1e-12 && Math.abs( hsl.s - 0.5 ) < 1e-12 && Math.abs( hsl.l - 0.5 ) < 1e-12 );
+
+} )();
+
+// 17.2 enabled=true: sRGB→linear 工作流
+( function () {
+
+	THREE.ColorManagement.enabled = true;
+
+	const c = new THREE.Color( 0x808080 );
+	// sRGB 0.50196 linear 化 ≈ 0.2158(设计文档验收值)
+	assert( 'enabled=true: new Color(0x808080) 内部值 ≈ 0.2158 (实测 ' + c.r.toFixed( 4 ) + ')',
+		Math.abs( c.r - 0.2158 ) < 1e-3 );
+	assert( 'enabled=true: getHex 反向转换回 sRGB', c.getHex() === 0x808080 );
+
+	const cRGB = new THREE.Color().setRGB( 0.5, 0.5, 0.5 );
+	assert( 'enabled=true: setRGB 默认按 working(linear) 不转换', cRGB.r === 0.5 );
+
+	const cSrgb = new THREE.Color().setRGB( 0.5, 0.5, 0.5, THREE.SRGBColorSpace );
+	assert( 'enabled=true: setRGB 显式 sRGB 时做 linear 化', Math.abs( cSrgb.r - 0.2140 ) < 1e-3 );
+
+	THREE.ColorManagement.enabled = false;
+
+	const cAfter = new THREE.Color( 0x808080 );
+	assert( '恢复 enabled=false 后行为回到 r110', cAfter.r === 128 / 255 );
+
+} )();
+
+// ---- 18. Raycaster 小改进(升级差距分析说明 3.0 §2.5) ----
+
+( function () {
+
+	const boxMesh = new THREE.Mesh( new THREE.BoxBufferGeometry( 1, 1, 1 ), new THREE.MeshBasicMaterial() );
+	boxMesh.updateMatrixWorld( true );
+	const ray = new THREE.Raycaster( new THREE.Vector3( 0, 0, 5 ), new THREE.Vector3( 0, 0, - 1 ) );
+
+	assert( 'Raycaster.layers 存在', ray.layers !== undefined && typeof ray.layers.test === 'function' );
+	assert( 'params.Line.threshold 默认 1', ray.params.Line.threshold === 1 );
+
+	// 刻意分歧 #3: raycaster.layers 默认全通(r110「拾取不看 layers」语义,
+	// LDrawBatchedPartStore 的隐藏图层拾取依赖此行为)
+	assert( '默认层对象可命中', ray.intersectObject( boxMesh ).length > 0 );
+	boxMesh.layers.set( 30 );
+	assert( '默认全通: 对象切隐藏图层仍可拾取(r110 语义)', ray.intersectObject( boxMesh ).length > 0 );
+
+	// 显式收窄 raycaster.layers 后过滤生效(r185 官方语义, opt-in)
+	ray.layers.set( 0 );
+	assert( '显式 layers.set(0) 后隐藏图层对象被过滤', ray.intersectObject( boxMesh ).length === 0 );
+	ray.layers.enable( 30 );
+	assert( 'raycaster.layers.enable 后恢复命中', ray.intersectObject( boxMesh ).length > 0 );
+	boxMesh.layers.set( 0 );
+	ray.layers.enableAll();
+
+	// 刻意分歧 #1: recursive 默认 false(r110 语义)
+	const parent = new THREE.Object3D();
+	const child = new THREE.Mesh( new THREE.BoxBufferGeometry( 1, 1, 1 ), new THREE.MeshBasicMaterial() );
+	parent.add( child );
+	parent.updateMatrixWorld( true );
+	assert( 'recursive 默认 false(不查子树, r110 语义)', ray.intersectObject( parent ).length === 0 );
+	assert( 'recursive=true 时命中子对象', ray.intersectObject( parent, true ).length > 0 );
+
+	// 刻意分歧 #2: visible=false 跳过(r110 语义)
+	child.visible = false;
+	assert( 'visible=false 对象跳过(r110 语义保留)', ray.intersectObject( parent, true ).length === 0 );
+	child.visible = true;
+
+	// Line.threshold 生效: 离线 0.5 世界单位的射线, 默认阈值 1 可命中, 收紧到 0.1 不可命中
+	const lineGeom = new THREE.BufferGeometry();
+	lineGeom.setAttribute( 'position', new THREE.BufferAttribute( new Float32Array( [ - 1, 0.5, 0, 1, 0.5, 0 ] ), 3 ) );
+	const line = new THREE.Line( lineGeom, new THREE.LineBasicMaterial() );
+	line.updateMatrixWorld( true );
+
+	const rayLine = new THREE.Raycaster( new THREE.Vector3( 0, 0, 5 ), new THREE.Vector3( 0, 0, - 1 ) );
+	assert( 'Line 默认阈值 1 命中(距线 0.5)', rayLine.intersectObject( line ).length > 0 );
+	rayLine.params.Line.threshold = 0.1;
+	assert( 'params.Line.threshold=0.1 时不命中', rayLine.intersectObject( line ).length === 0 );
+
+} )();
+
 // ---- 结果 ----
 
 THREE.global.clearCanvas();
