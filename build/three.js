@@ -232,6 +232,15 @@
 	var ZeroCurvatureEnding = 2400;
 	var ZeroSlopeEnding = 2401;
 	var WrapAroundEnding = 2402;
+	// backport from r185: additive 动画混合模式
+	var NormalAnimationBlendMode = 2500;
+	var AdditiveAnimationBlendMode = 2501;
+	// backport from r185: ColorManagement 色彩空间标识
+	var NoColorSpace = '';
+	var SRGBColorSpace = 'srgb';
+	var LinearSRGBColorSpace = 'srgb-linear';
+	var LinearTransfer = 'linear';
+	var SRGBTransfer = 'srgb';
 	var TrianglesDrawMode = 0;
 	var TriangleStripDrawMode = 1;
 	var TriangleFanDrawMode = 2;
@@ -1080,6 +1089,29 @@
 			dst[ dstOffset + 1 ] = y0;
 			dst[ dstOffset + 2 ] = z0;
 			dst[ dstOffset + 3 ] = w0;
+
+		},
+
+		// backport from r185: additive 动画混合(PropertyMixer._slerpAdditive /
+		// AnimationUtils.makeClipAdditive)的数学前置
+		multiplyQuaternionsFlat: function ( dst, dstOffset, src0, srcOffset0, src1, srcOffset1 ) {
+
+			var x0 = src0[ srcOffset0 ];
+			var y0 = src0[ srcOffset0 + 1 ];
+			var z0 = src0[ srcOffset0 + 2 ];
+			var w0 = src0[ srcOffset0 + 3 ];
+
+			var x1 = src1[ srcOffset1 ];
+			var y1 = src1[ srcOffset1 + 1 ];
+			var z1 = src1[ srcOffset1 + 2 ];
+			var w1 = src1[ srcOffset1 + 3 ];
+
+			dst[ dstOffset ] = x0 * w1 + w0 * x1 + y0 * z1 - z0 * y1;
+			dst[ dstOffset + 1 ] = y0 * w1 + w0 * y1 + z0 * x1 - x0 * z1;
+			dst[ dstOffset + 2 ] = z0 * w1 + w0 * z1 + x0 * y1 - y0 * x1;
+			dst[ dstOffset + 3 ] = w0 * w1 - x0 * x1 - y0 * y1 - z0 * z1;
+
+			return dst;
 
 		}
 
@@ -2506,20 +2538,14 @@
 
 		},
 
-		getInverse: function ( matrix, throwOnDegenerate ) {
+		invert: function () {
 
-			if ( matrix && matrix.isMatrix4 ) {
+			// backport from r185: 解析求逆; 退化矩阵(det=0)置零矩阵, 与新版语义一致
+			var te = this.elements,
 
-				console.error( "THREE.Matrix3: .getInverse() no longer takes a Matrix4 argument." );
-
-			}
-
-			var me = matrix.elements,
-				te = this.elements,
-
-				n11 = me[ 0 ], n21 = me[ 1 ], n31 = me[ 2 ],
-				n12 = me[ 3 ], n22 = me[ 4 ], n32 = me[ 5 ],
-				n13 = me[ 6 ], n23 = me[ 7 ], n33 = me[ 8 ],
+				n11 = te[ 0 ], n21 = te[ 1 ], n31 = te[ 2 ],
+				n12 = te[ 3 ], n22 = te[ 4 ], n32 = te[ 5 ],
+				n13 = te[ 6 ], n23 = te[ 7 ], n33 = te[ 8 ],
 
 				t11 = n33 * n22 - n32 * n23,
 				t12 = n32 * n13 - n33 * n12,
@@ -2527,23 +2553,7 @@
 
 				det = n11 * t11 + n21 * t12 + n31 * t13;
 
-			if ( det === 0 ) {
-
-				var msg = "THREE.Matrix3: .getInverse() can't invert matrix, determinant is 0";
-
-				if ( throwOnDegenerate === true ) {
-
-					throw new Error( msg );
-
-				} else {
-
-					console.warn( msg );
-
-				}
-
-				return this.identity();
-
-			}
+			if ( det === 0 ) { return this.set( 0, 0, 0, 0, 0, 0, 0, 0, 0 ); }
 
 			var detInv = 1 / det;
 
@@ -2560,6 +2570,13 @@
 			te[ 8 ] = ( n22 * n11 - n21 * n12 ) * detInv;
 
 			return this;
+
+		},
+
+		// 旧 API 别名, 等价于 this.copy( matrix ).invert()
+		getInverse: function ( matrix ) {
+
+			return this.copy( matrix ).invert();
 
 		},
 
@@ -4381,65 +4398,65 @@
 
 		},
 
-		getInverse: function ( m, throwOnDegenerate ) {
+		invert: function () {
 
-			// based on http://www.euclideanspace.com/maths/algebra/matrix/functions/inverse/fourD/index.htm
+			// backport from r185, based on https://github.com/toji/gl-matrix
+			// 解析求逆(子式复用), 比旧版余子式展开更快且数值更稳;
+			// 退化矩阵(det=0)置零矩阵, 与 r185 语义一致
 			var te = this.elements,
-				me = m.elements,
 
-				n11 = me[ 0 ], n21 = me[ 1 ], n31 = me[ 2 ], n41 = me[ 3 ],
-				n12 = me[ 4 ], n22 = me[ 5 ], n32 = me[ 6 ], n42 = me[ 7 ],
-				n13 = me[ 8 ], n23 = me[ 9 ], n33 = me[ 10 ], n43 = me[ 11 ],
-				n14 = me[ 12 ], n24 = me[ 13 ], n34 = me[ 14 ], n44 = me[ 15 ],
+				n11 = te[ 0 ], n21 = te[ 1 ], n31 = te[ 2 ], n41 = te[ 3 ],
+				n12 = te[ 4 ], n22 = te[ 5 ], n32 = te[ 6 ], n42 = te[ 7 ],
+				n13 = te[ 8 ], n23 = te[ 9 ], n33 = te[ 10 ], n43 = te[ 11 ],
+				n14 = te[ 12 ], n24 = te[ 13 ], n34 = te[ 14 ], n44 = te[ 15 ],
 
-				t11 = n23 * n34 * n42 - n24 * n33 * n42 + n24 * n32 * n43 - n22 * n34 * n43 - n23 * n32 * n44 + n22 * n33 * n44,
-				t12 = n14 * n33 * n42 - n13 * n34 * n42 - n14 * n32 * n43 + n12 * n34 * n43 + n13 * n32 * n44 - n12 * n33 * n44,
-				t13 = n13 * n24 * n42 - n14 * n23 * n42 + n14 * n22 * n43 - n12 * n24 * n43 - n13 * n22 * n44 + n12 * n23 * n44,
-				t14 = n14 * n23 * n32 - n13 * n24 * n32 - n14 * n22 * n33 + n12 * n24 * n33 + n13 * n22 * n34 - n12 * n23 * n34;
+				t1 = n11 * n22 - n21 * n12,
+				t2 = n11 * n32 - n31 * n12,
+				t3 = n11 * n42 - n41 * n12,
+				t4 = n21 * n32 - n31 * n22,
+				t5 = n21 * n42 - n41 * n22,
+				t6 = n31 * n42 - n41 * n32,
+				t7 = n13 * n24 - n23 * n14,
+				t8 = n13 * n34 - n33 * n14,
+				t9 = n13 * n44 - n43 * n14,
+				t10 = n23 * n34 - n33 * n24,
+				t11 = n23 * n44 - n43 * n24,
+				t12 = n33 * n44 - n43 * n34;
 
-			var det = n11 * t11 + n21 * t12 + n31 * t13 + n41 * t14;
+			var det = t1 * t12 - t2 * t11 + t3 * t10 + t4 * t9 - t5 * t8 + t6 * t7;
 
-			if ( det === 0 ) {
-
-				var msg = "THREE.Matrix4: .getInverse() can't invert matrix, determinant is 0";
-
-				if ( throwOnDegenerate === true ) {
-
-					throw new Error( msg );
-
-				} else {
-
-					console.warn( msg );
-
-				}
-
-				return this.identity();
-
-			}
+			if ( det === 0 ) { return this.set( 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 ); }
 
 			var detInv = 1 / det;
 
-			te[ 0 ] = t11 * detInv;
-			te[ 1 ] = ( n24 * n33 * n41 - n23 * n34 * n41 - n24 * n31 * n43 + n21 * n34 * n43 + n23 * n31 * n44 - n21 * n33 * n44 ) * detInv;
-			te[ 2 ] = ( n22 * n34 * n41 - n24 * n32 * n41 + n24 * n31 * n42 - n21 * n34 * n42 - n22 * n31 * n44 + n21 * n32 * n44 ) * detInv;
-			te[ 3 ] = ( n23 * n32 * n41 - n22 * n33 * n41 - n23 * n31 * n42 + n21 * n33 * n42 + n22 * n31 * n43 - n21 * n32 * n43 ) * detInv;
+			te[ 0 ] = ( n22 * t12 - n32 * t11 + n42 * t10 ) * detInv;
+			te[ 1 ] = ( n31 * t11 - n21 * t12 - n41 * t10 ) * detInv;
+			te[ 2 ] = ( n24 * t6 - n34 * t5 + n44 * t4 ) * detInv;
+			te[ 3 ] = ( n33 * t5 - n23 * t6 - n43 * t4 ) * detInv;
 
-			te[ 4 ] = t12 * detInv;
-			te[ 5 ] = ( n13 * n34 * n41 - n14 * n33 * n41 + n14 * n31 * n43 - n11 * n34 * n43 - n13 * n31 * n44 + n11 * n33 * n44 ) * detInv;
-			te[ 6 ] = ( n14 * n32 * n41 - n12 * n34 * n41 - n14 * n31 * n42 + n11 * n34 * n42 + n12 * n31 * n44 - n11 * n32 * n44 ) * detInv;
-			te[ 7 ] = ( n12 * n33 * n41 - n13 * n32 * n41 + n13 * n31 * n42 - n11 * n33 * n42 - n12 * n31 * n43 + n11 * n32 * n43 ) * detInv;
+			te[ 4 ] = ( n32 * t9 - n12 * t12 - n42 * t8 ) * detInv;
+			te[ 5 ] = ( n11 * t12 - n31 * t9 + n41 * t8 ) * detInv;
+			te[ 6 ] = ( n34 * t3 - n14 * t6 - n44 * t2 ) * detInv;
+			te[ 7 ] = ( n13 * t6 - n33 * t3 + n43 * t2 ) * detInv;
 
-			te[ 8 ] = t13 * detInv;
-			te[ 9 ] = ( n14 * n23 * n41 - n13 * n24 * n41 - n14 * n21 * n43 + n11 * n24 * n43 + n13 * n21 * n44 - n11 * n23 * n44 ) * detInv;
-			te[ 10 ] = ( n12 * n24 * n41 - n14 * n22 * n41 + n14 * n21 * n42 - n11 * n24 * n42 - n12 * n21 * n44 + n11 * n22 * n44 ) * detInv;
-			te[ 11 ] = ( n13 * n22 * n41 - n12 * n23 * n41 - n13 * n21 * n42 + n11 * n23 * n42 + n12 * n21 * n43 - n11 * n22 * n43 ) * detInv;
+			te[ 8 ] = ( n12 * t11 - n22 * t9 + n42 * t7 ) * detInv;
+			te[ 9 ] = ( n21 * t9 - n11 * t11 - n41 * t7 ) * detInv;
+			te[ 10 ] = ( n14 * t5 - n24 * t3 + n44 * t1 ) * detInv;
+			te[ 11 ] = ( n23 * t3 - n13 * t5 - n43 * t1 ) * detInv;
 
-			te[ 12 ] = t14 * detInv;
-			te[ 13 ] = ( n13 * n24 * n31 - n14 * n23 * n31 + n14 * n21 * n33 - n11 * n24 * n33 - n13 * n21 * n34 + n11 * n23 * n34 ) * detInv;
-			te[ 14 ] = ( n14 * n22 * n31 - n12 * n24 * n31 - n14 * n21 * n32 + n11 * n24 * n32 + n12 * n21 * n34 - n11 * n22 * n34 ) * detInv;
-			te[ 15 ] = ( n12 * n23 * n31 - n13 * n22 * n31 + n13 * n21 * n32 - n11 * n23 * n32 - n12 * n21 * n33 + n11 * n22 * n33 ) * detInv;
+			te[ 12 ] = ( n22 * t8 - n12 * t10 - n32 * t7 ) * detInv;
+			te[ 13 ] = ( n11 * t10 - n21 * t8 + n31 * t7 ) * detInv;
+			te[ 14 ] = ( n24 * t2 - n14 * t4 - n34 * t1 ) * detInv;
+			te[ 15 ] = ( n13 * t4 - n23 * t2 + n33 * t1 ) * detInv;
 
 			return this;
+
+		},
+
+		// 旧 API 别名(现网 61 处 import 依赖), 等价于 this.copy( m ).invert()
+		getInverse: function ( m ) {
+
+			return this.copy( m ).invert();
 
 		},
 
@@ -5262,6 +5279,11 @@
 		this.matrixWorld = new Matrix4();
 
 		this.matrixAutoUpdate = Object3D.DefaultMatrixAutoUpdate;
+
+		// backport from r185(阶段二 4.1#3): 置 false 可让静态子树跳过
+		// matrixWorld 重算(仍会递归遍历, 但省去矩阵乘法), 由渲染器与
+		// updateMatrixWorld/updateWorldMatrix 共同消费
+		this.matrixWorldAutoUpdate = Object3D.DefaultMatrixWorldAutoUpdate;
 		this.matrixWorldNeedsUpdate = false;
 
 		this.layers = new Layers();
@@ -5279,6 +5301,7 @@
 
 	Object3D.DefaultUp = new Vector3( 0, 1, 0 );
 	Object3D.DefaultMatrixAutoUpdate = true;
+	Object3D.DefaultMatrixWorldAutoUpdate = true;
 
 	Object3D.prototype = Object.assign( Object.create( EventDispatcher.prototype ), {
 
@@ -5719,19 +5742,25 @@
 
 		},
 
+		// backport from r185(阶段二 4.1#3): matrixWorldAutoUpdate=false 的节点
+		// 跳过 matrixWorld 重算(matrix 仍可经 updateMatrix 手动合成)
 		updateMatrixWorld: function ( force ) {
 
 			if ( this.matrixAutoUpdate ) { this.updateMatrix(); }
 
 			if ( this.matrixWorldNeedsUpdate || force ) {
 
-				if ( this.parent === null ) {
+				if ( this.matrixWorldAutoUpdate === true ) {
 
-					this.matrixWorld.copy( this.matrix );
+					if ( this.parent === null ) {
 
-				} else {
+						this.matrixWorld.copy( this.matrix );
 
-					this.matrixWorld.multiplyMatrices( this.parent.matrixWorld, this.matrix );
+					} else {
+
+						this.matrixWorld.multiplyMatrices( this.parent.matrixWorld, this.matrix );
+
+					}
 
 				}
 
@@ -5753,7 +5782,13 @@
 
 		},
 
-		updateWorldMatrix: function ( updateParents, updateChildren ) {
+		// backport from r185: 增加 force 参数; 无 force 时仅重算脏节点,
+		// matrixWorldAutoUpdate 语义与 updateMatrixWorld 一致
+		updateWorldMatrix: function ( updateParents, updateChildren, force ) {
+
+			// r185 默认 force=false; matrixAutoUpdate=true 的节点 updateMatrix()
+			// 会置脏, 行为与 r110 无差异; 仅手动矩阵节点需要显式传 force
+			if ( force === undefined ) { force = false; }
 
 			var parent = this.parent;
 
@@ -5765,13 +5800,23 @@
 
 			if ( this.matrixAutoUpdate ) { this.updateMatrix(); }
 
-			if ( this.parent === null ) {
+			if ( this.matrixWorldNeedsUpdate || force ) {
 
-				this.matrixWorld.copy( this.matrix );
+				if ( this.matrixWorldAutoUpdate === true ) {
 
-			} else {
+					if ( this.parent === null ) {
 
-				this.matrixWorld.multiplyMatrices( this.parent.matrixWorld, this.matrix );
+						this.matrixWorld.copy( this.matrix );
+
+					} else {
+
+						this.matrixWorld.multiplyMatrices( this.parent.matrixWorld, this.matrix );
+
+					}
+
+				}
+
+				this.matrixWorldNeedsUpdate = false;
 
 			}
 
@@ -5783,7 +5828,7 @@
 
 				for ( var i = 0, l = children.length; i < l; i ++ ) {
 
-					children[ i ].updateWorldMatrix( false, true );
+					children[ i ].updateWorldMatrix( false, true, force );
 
 				}
 
@@ -5993,6 +6038,7 @@
 			this.matrixWorld.copy( source.matrixWorld );
 
 			this.matrixAutoUpdate = source.matrixAutoUpdate;
+			this.matrixWorldAutoUpdate = source.matrixWorldAutoUpdate;
 			this.matrixWorldNeedsUpdate = source.matrixWorldNeedsUpdate;
 
 			this.layers.mask = source.layers.mask;
@@ -6098,6 +6144,9 @@
 		new Vector3()
 	];
 	var _vector$2 = new Vector3();
+
+	// expandByObject 快速路径的临时盒(函数声明提升, 此处可安全实例化)
+	var _box = new Box3();
 
 	// triangle centered vertices
 
@@ -6232,11 +6281,11 @@
 
 		},
 
-		setFromObject: function ( object ) {
+		setFromObject: function ( object, precise ) {
 
 			this.makeEmpty();
 
-			return this.expandByObject( object );
+			return this.expandByObject( object, precise );
 
 		},
 
@@ -6325,7 +6374,10 @@
 
 		},
 
-		expandByObject: function ( object ) {
+		expandByObject: function ( object, precise ) {
+
+			// backport from r185: 默认走「几何级包围盒 + 世界矩阵」快速路径,
+			// 复杂度从 O(顶点数) 降到 O(对象数); precise=true 保留旧的逐顶点精确扫盒
 
 			var i, l;
 
@@ -6338,34 +6390,51 @@
 
 			if ( geometry !== undefined ) {
 
-				if ( geometry.isGeometry ) {
+				if ( precise === true ) {
 
-					var vertices = geometry.vertices;
+					if ( geometry.isGeometry ) {
 
-					for ( i = 0, l = vertices.length; i < l; i ++ ) {
+						var vertices = geometry.vertices;
 
-						_vector$2.copy( vertices[ i ] );
-						_vector$2.applyMatrix4( object.matrixWorld );
+						for ( i = 0, l = vertices.length; i < l; i ++ ) {
 
-						this.expandByPoint( _vector$2 );
-
-					}
-
-				} else if ( geometry.isBufferGeometry ) {
-
-					var attribute = geometry.attributes.position;
-
-					if ( attribute !== undefined ) {
-
-						for ( i = 0, l = attribute.count; i < l; i ++ ) {
-
-							_vector$2.fromBufferAttribute( attribute, i ).applyMatrix4( object.matrixWorld );
+							_vector$2.copy( vertices[ i ] );
+							_vector$2.applyMatrix4( object.matrixWorld );
 
 							this.expandByPoint( _vector$2 );
 
 						}
 
+					} else if ( geometry.isBufferGeometry ) {
+
+						var attribute = geometry.attributes.position;
+
+						if ( attribute !== undefined ) {
+
+							for ( i = 0, l = attribute.count; i < l; i ++ ) {
+
+								_vector$2.fromBufferAttribute( attribute, i ).applyMatrix4( object.matrixWorld );
+
+								this.expandByPoint( _vector$2 );
+
+							}
+
+						}
+
 					}
+
+				} else {
+
+					if ( geometry.boundingBox === null ) {
+
+						geometry.computeBoundingBox();
+
+					}
+
+					_box.copy( geometry.boundingBox );
+					_box.applyMatrix4( object.matrixWorld );
+
+					this.union( _box );
 
 				}
 
@@ -6377,7 +6446,7 @@
 
 			for ( i = 0, l = children.length; i < l; i ++ ) {
 
-				this.expandByObject( children[ i ] );
+				this.expandByObject( children[ i ], precise );
 
 			}
 
@@ -6665,11 +6734,17 @@
 
 	}
 
-	var _box = new Box3();
+	var _box$1 = new Box3();
+	var _v1$3 = new Vector3();
+	var _v2$1 = new Vector3();
 
 	/**
 	 * @author bhouston / http://clara.io
 	 * @author mrdoob / http://mrdoob.com/
+	 *
+	 * backport from r185(为 InstancedMesh/BatchedMesh 包围球计算补的纯 JS 增量):
+	 * isEmpty/makeEmpty/expandByPoint/union; 构造默认 radius 仍为 0(不改旧语义),
+	 * 空球以 radius<0 表达(makeEmpty 之后), 旧 empty() 保留
 	 */
 
 	function Sphere( center, radius ) {
@@ -6700,7 +6775,7 @@
 
 			} else {
 
-				_box.setFromPoints( points ).getCenter( center );
+				_box$1.setFromPoints( points ).getCenter( center );
 
 			}
 
@@ -6736,6 +6811,89 @@
 		empty: function () {
 
 			return ( this.radius <= 0 );
+
+		},
+
+		isEmpty: function () {
+
+			return ( this.radius < 0 );
+
+		},
+
+		makeEmpty: function () {
+
+			this.center.set( 0, 0, 0 );
+			this.radius = - 1;
+
+			return this;
+
+		},
+
+		expandByPoint: function ( point ) {
+
+			if ( this.isEmpty() ) {
+
+				this.center.copy( point );
+
+				this.radius = 0;
+
+				return this;
+
+			}
+
+			_v1$3.subVectors( point, this.center );
+
+			var lengthSq = _v1$3.lengthSq();
+
+			if ( lengthSq > ( this.radius * this.radius ) ) {
+
+				// calculate the minimal sphere
+
+				var length = Math.sqrt( lengthSq );
+
+				var delta = ( length - this.radius ) * 0.5;
+
+				this.center.addScaledVector( _v1$3, delta / length );
+
+				this.radius += delta;
+
+			}
+
+			return this;
+
+		},
+
+		union: function ( sphere ) {
+
+			if ( sphere.isEmpty() ) {
+
+				return this;
+
+			}
+
+			if ( this.isEmpty() ) {
+
+				this.copy( sphere );
+
+				return this;
+
+			}
+
+			if ( this.center.equals( sphere.center ) === true ) {
+
+				this.radius = Math.max( this.radius, sphere.radius );
+
+			} else {
+
+				_v2$1.subVectors( sphere.center, this.center ).setLength( sphere.radius );
+
+				this.expandByPoint( _v1$3.copy( sphere.center ).add( _v2$1 ) );
+
+				this.expandByPoint( _v1$3.copy( sphere.center ).sub( _v2$1 ) );
+
+			}
+
+			return this;
 
 		},
 
@@ -6836,18 +6994,22 @@
 
 	} );
 
+	/**
+	 * @author bhouston / http://clara.io
+	 *
+	 * backport from r185(阶段二 4.1#2): 数学算法逐函数对齐 r185
+	 * - at/closestPointToPoint/distanceSqToSegment: multiplyScalar+add 改 addScaledVector(数值更稳)
+	 * - intersectSphere: 判空条件由 (t0<0 && t1<0) 收敛为 (t1<0)(语义等价、更直白)
+	 * - intersectsSphere: 显式处理空球(radius<0, 对应 Sphere.makeEmpty 语义)
+	 * - intersectTriangle: 换 Woop/Benthin/Wald watertight 算法(JCGT 2013),
+	 *   消除共享边"缝隙漏拾取"问题, 是拾取正确性的核心改进
+	 * 保持 r110 的 function/prototype 风格与无 target 参数时的兼容告警
+	 */
+
 	var _vector$3 = new Vector3();
 	var _segCenter = new Vector3();
 	var _segDir = new Vector3();
 	var _diff = new Vector3();
-
-	var _edge1 = new Vector3();
-	var _edge2 = new Vector3();
-	var _normal = new Vector3();
-
-	/**
-	 * @author bhouston / http://clara.io
-	 */
 
 	function Ray( origin, direction ) {
 
@@ -6891,7 +7053,7 @@
 
 			}
 
-			return target.copy( this.direction ).multiplyScalar( t ).add( this.origin );
+			return target.copy( this.origin ).addScaledVector( this.direction, t );
 
 		},
 
@@ -6930,7 +7092,7 @@
 
 			}
 
-			return target.copy( this.direction ).multiplyScalar( directionDistance ).add( this.origin );
+			return target.copy( this.origin ).addScaledVector( this.direction, directionDistance );
 
 		},
 
@@ -6952,7 +7114,7 @@
 
 			}
 
-			_vector$3.copy( this.direction ).multiplyScalar( directionDistance ).add( this.origin );
+			_vector$3.copy( this.origin ).addScaledVector( this.direction, directionDistance );
 
 			return _vector$3.distanceToSquared( point );
 
@@ -6960,7 +7122,7 @@
 
 		distanceSqToSegment: function ( v0, v1, optionalPointOnRay, optionalPointOnSegment ) {
 
-			// from http://www.geometrictools.com/GTEngine/Include/Mathematics/GteDistRaySegment.h
+			// from https://github.com/pmjoniak/GeometricTools/blob/master/GTEngine/Include/Mathematics/GteDistRaySegment.h
 			// It returns the min distance between the ray and the segment
 			// defined by v0 and v1
 			// It can also set two optional targets :
@@ -7063,13 +7225,13 @@
 
 			if ( optionalPointOnRay ) {
 
-				optionalPointOnRay.copy( this.direction ).multiplyScalar( s0 ).add( this.origin );
+				optionalPointOnRay.copy( this.origin ).addScaledVector( this.direction, s0 );
 
 			}
 
 			if ( optionalPointOnSegment ) {
 
-				optionalPointOnSegment.copy( _segDir ).multiplyScalar( s1 ).add( _segCenter );
+				optionalPointOnSegment.copy( _segCenter ).addScaledVector( _segDir, s1 );
 
 			}
 
@@ -7094,8 +7256,8 @@
 			// t1 = second intersect point - exit point on back of sphere
 			var t1 = tca + thc;
 
-			// test to see if both t0 and t1 are behind the ray - if so, return null
-			if ( t0 < 0 && t1 < 0 ) { return null; }
+			// test to see if t1 is behind the ray - if so, return null
+			if ( t1 < 0 ) { return null; }
 
 			// test to see if t0 is behind the ray:
 			// if it is, the ray is inside the sphere, so return the second exit point scaled by t1,
@@ -7108,6 +7270,8 @@
 		},
 
 		intersectsSphere: function ( sphere ) {
+
+			if ( sphere.radius < 0 ) { return false; } // handle empty spheres
 
 			return this.distanceSqToPoint( sphere.center ) <= ( sphere.radius * sphere.radius );
 
@@ -7216,12 +7380,9 @@
 
 			if ( ( tmin > tymax ) || ( tymin > tmax ) ) { return null; }
 
-			// These lines also handle the case where tmin or tmax is NaN
-			// (result of 0 * Infinity). x !== x returns true if x is NaN
+			if ( tymin > tmin || isNaN( tmin ) ) { tmin = tymin; }
 
-			if ( tymin > tmin || tmin !== tmin ) { tmin = tymin; }
-
-			if ( tymax < tmax || tmax !== tmax ) { tmax = tymax; }
+			if ( tymax < tmax || isNaN( tmax ) ) { tmax = tymax; }
 
 			if ( invdirz >= 0 ) {
 
@@ -7241,7 +7402,7 @@
 
 			if ( tzmax < tmax || tmax !== tmax ) { tmax = tzmax; }
 
-			//return point closest to the ray (positive side)
+			// return point closest to the ray (positive side)
 
 			if ( tmax < 0 ) { return null; }
 
@@ -7257,76 +7418,128 @@
 
 		intersectTriangle: function ( a, b, c, backfaceCulling, target ) {
 
-			// Compute the offset origin, edges, and normal.
+			// Watertight ray/triangle intersection. Reference: Woop, Benthin, Wald,
+			// "Watertight Ray/Triangle Intersection", JCGT vol. 2 no. 1 (2013), Appendix A.
+			// https://jcgt.org/published/0002/01/05/
 
-			// from http://www.geometrictools.com/GTEngine/Include/Mathematics/GteIntrRay3Triangle3.h
+			var origin = this.origin;
+			var direction = this.direction;
 
-			_edge1.subVectors( b, a );
-			_edge2.subVectors( c, a );
-			_normal.crossVectors( _edge1, _edge2 );
+			var dx = direction.x;
+			var dy = direction.y;
+			var dz = direction.z;
 
-			// Solve Q + t*D = b1*E1 + b2*E2 (Q = kDiff, D = ray direction,
-			// E1 = kEdge1, E2 = kEdge2, N = Cross(E1,E2)) by
-			//   |Dot(D,N)|*b1 = sign(Dot(D,N))*Dot(D,Cross(Q,E2))
-			//   |Dot(D,N)|*b2 = sign(Dot(D,N))*Dot(D,Cross(E1,Q))
-			//   |Dot(D,N)|*t = -sign(Dot(D,N))*Dot(Q,N)
-			var DdN = this.direction.dot( _normal );
-			var sign;
+			// triangle vertices relative to the ray origin
 
-			if ( DdN > 0 ) {
+			var aox = a.x - origin.x, aoy = a.y - origin.y, aoz = a.z - origin.z;
+			var box = b.x - origin.x, boy = b.y - origin.y, boz = b.z - origin.z;
+			var cox = c.x - origin.x, coy = c.y - origin.y, coz = c.z - origin.z;
 
-				if ( backfaceCulling ) { return null; }
-				sign = 1;
+			// Use the dimension where the ray direction is maximal as the projection
+			// axis (kz) and read every component already permuted into (kx, ky, kz).
+			// kx and ky are swapped when the direction's kz component is negative, to
+			// preserve the winding order of triangles.
 
-			} else if ( DdN < 0 ) {
+			var adx = Math.abs( dx ), ady = Math.abs( dy ), adz = Math.abs( dz );
 
-				sign = - 1;
-				DdN = - DdN;
+			var dkx, dky, dkz;
+			var akx, aky, akz, bkx, bky, bkz, ckx, cky, ckz;
+
+			if ( adx >= ady && adx >= adz ) {
+
+				dkz = dx; akz = aox; bkz = box; ckz = cox;
+
+				if ( dx >= 0 ) {
+
+					dkx = dy; dky = dz;
+					akx = aoy; aky = aoz; bkx = boy; bky = boz; ckx = coy; cky = coz;
+
+				} else {
+
+					dkx = dz; dky = dy;
+					akx = aoz; aky = aoy; bkx = boz; bky = boy; ckx = coz; cky = coy;
+
+				}
+
+			} else if ( ady >= adz ) {
+
+				dkz = dy; akz = aoy; bkz = boy; ckz = coy;
+
+				if ( dy >= 0 ) {
+
+					dkx = dz; dky = dx;
+					akx = aoz; aky = aox; bkx = boz; bky = box; ckx = coz; cky = cox;
+
+				} else {
+
+					dkx = dx; dky = dz;
+					akx = aox; aky = aoz; bkx = box; bky = boz; ckx = cox; cky = coz;
+
+				}
 
 			} else {
 
-				return null;
+				dkz = dz; akz = aoz; bkz = boz; ckz = coz;
+
+				if ( dz >= 0 ) {
+
+					dkx = dx; dky = dy;
+					akx = aox; aky = aoy; bkx = box; bky = boy; ckx = cox; cky = coy;
+
+				} else {
+
+					dkx = dy; dky = dx;
+					akx = aoy; aky = aox; bkx = boy; bky = box; ckx = coy; cky = cox;
+
+				}
 
 			}
 
-			_diff.subVectors( this.origin, a );
-			var DdQxE2 = sign * this.direction.dot( _edge2.crossVectors( _diff, _edge2 ) );
+			// a zero direction has no maximal axis and cannot intersect
 
-			// b1 < 0, no intersection
-			if ( DdQxE2 < 0 ) {
+			if ( dkz === 0 ) { return null; }
 
-				return null;
+			// shear constants that align the ray with the +kz axis
 
-			}
+			var sx = dkx / dkz, sy = dky / dkz, sz = 1 / dkz;
 
-			var DdE1xQ = sign * this.direction.dot( _edge1.cross( _diff ) );
+			// sheared and scaled vertices
 
-			// b2 < 0, no intersection
-			if ( DdE1xQ < 0 ) {
+			var ax = akx - sx * akz, ay = aky - sy * akz;
+			var bx = bkx - sx * bkz, by = bky - sy * bkz;
+			var cx = ckx - sx * ckz, cy = cky - sy * ckz;
 
-				return null;
+			// scaled barycentric coordinates (signed edge functions); the shear makes a
+			// shared edge evaluate identically for both adjacent triangles, so the ray
+			// can never fall between them
 
-			}
+			var u = cx * by - cy * bx;
+			var v = ax * cy - ay * cx;
+			var w = bx * ay - by * ax;
 
-			// b1+b2 > 1, no intersection
-			if ( DdQxE2 + DdE1xQ > DdN ) {
+			if ( backfaceCulling ) {
 
-				return null;
+				if ( u < 0 || v < 0 || w < 0 ) { return null; }
 
-			}
+			} else {
 
-			// Line intersects triangle, check if ray does.
-			var QdN = - sign * _diff.dot( _normal );
-
-			// t < 0, no intersection
-			if ( QdN < 0 ) {
-
-				return null;
+				if ( ( u < 0 || v < 0 || w < 0 ) && ( u > 0 || v > 0 || w > 0 ) ) { return null; }
 
 			}
 
-			// Ray intersects triangle.
-			return this.at( QdN / DdN, target );
+			var det = u + v + w;
+
+			// ray is co-planar with the triangle
+
+			if ( det === 0 ) { return null; }
+
+			// scaled hit distance; t = tScaled / det must lie in front of the origin
+
+			var tScaled = sz * ( u * akz + v * bkz + w * ckz );
+
+			if ( det > 0 ? tScaled < 0 : tScaled > 0 ) { return null; }
+
+			return this.at( tScaled / det, target );
 
 		},
 
@@ -7579,8 +7792,8 @@
 	 */
 
 	var _v0$1 = new Vector3();
-	var _v1$3 = new Vector3();
-	var _v2$1 = new Vector3();
+	var _v1$4 = new Vector3();
+	var _v2$2 = new Vector3();
 	var _v3 = new Vector3();
 
 	var _vab = new Vector3();
@@ -7629,14 +7842,14 @@
 		getBarycoord: function ( point, a, b, c, target ) {
 
 			_v0$1.subVectors( c, a );
-			_v1$3.subVectors( b, a );
-			_v2$1.subVectors( point, a );
+			_v1$4.subVectors( b, a );
+			_v2$2.subVectors( point, a );
 
 			var dot00 = _v0$1.dot( _v0$1 );
-			var dot01 = _v0$1.dot( _v1$3 );
-			var dot02 = _v0$1.dot( _v2$1 );
-			var dot11 = _v1$3.dot( _v1$3 );
-			var dot12 = _v1$3.dot( _v2$1 );
+			var dot01 = _v0$1.dot( _v1$4 );
+			var dot02 = _v0$1.dot( _v2$2 );
+			var dot11 = _v1$4.dot( _v1$4 );
+			var dot12 = _v1$4.dot( _v2$2 );
 
 			var denom = ( dot00 * dot11 - dot01 * dot01 );
 
@@ -7689,10 +7902,10 @@
 		isFrontFacing: function ( a, b, c, direction ) {
 
 			_v0$1.subVectors( c, b );
-			_v1$3.subVectors( a, b );
+			_v1$4.subVectors( a, b );
 
 			// strictly front facing
-			return ( _v0$1.cross( _v1$3 ).dot( direction ) < 0 ) ? true : false;
+			return ( _v0$1.cross( _v1$4 ).dot( direction ) < 0 ) ? true : false;
 
 		}
 
@@ -7739,9 +7952,9 @@
 		getArea: function () {
 
 			_v0$1.subVectors( this.c, this.b );
-			_v1$3.subVectors( this.a, this.b );
+			_v1$4.subVectors( this.a, this.b );
 
-			return _v0$1.cross( _v1$3 ).length() * 0.5;
+			return _v0$1.cross( _v1$4 ).length() * 0.5;
 
 		},
 
@@ -7907,6 +8120,268 @@
 	 * @author mrdoob / http://mrdoob.com/
 	 */
 
+	function arrayMax( array ) {
+
+		if ( array.length === 0 ) { return - Infinity; }
+
+		var max = array[ 0 ];
+
+		for ( var i = 1, l = array.length; i < l; ++ i ) {
+
+			if ( array[ i ] > max ) { max = array[ i ]; }
+
+		}
+
+		return max;
+
+	}
+
+	// backport from r185: AnimationUtils 依赖
+	function isTypedArray( object ) {
+
+		return ArrayBuffer.isView( object ) && ! ( object instanceof DataView );
+
+	}
+
+	// backport from r185: 同一条警告只输出一次(ColorManagement 依赖)
+	var _warnedMessages = {};
+
+	function warnOnce( message ) {
+
+		if ( _warnedMessages[ message ] === true ) { return; }
+
+		_warnedMessages[ message ] = true;
+
+		console.warn( message );
+
+	}
+
+	/**
+	 * backport from r185 (升级差距分析说明 3.0 §2.2)
+	 *
+	 * 与官方 r185 的唯一刻意分歧: enabled 默认 false(官方默认 true)。
+	 * 原因: 现网所有材质色值都是在"无色彩管理"下调出来的, 默认开启等于全网色偏。
+	 * 新项目/新页面可 THREE.ColorManagement.enabled = true 显式启用,
+	 * 配合 renderer.gammaOutput = true 得到正确 sRGB 工作流。
+	 * shader 侧的 OETF 输出转换 r110 已有等价物(gammaOutput/encodings_fragment chunk), 不动。
+	 */
+
+	var LINEAR_REC709_TO_XYZ = new Matrix3().set(
+		0.4123908, 0.3575843, 0.1804808,
+		0.2126390, 0.7151687, 0.0721923,
+		0.0193308, 0.1191948, 0.9505322
+	);
+
+	var XYZ_TO_LINEAR_REC709 = new Matrix3().set(
+		3.2409699, - 1.5373832, - 0.4986108,
+		- 0.9692436, 1.8759675, 0.0415551,
+		0.0556301, - 0.2039770, 1.0569715
+	);
+
+	function createColorManagement() {
+
+		var ColorManagement = {
+
+			// 与官方 r185 的刻意分歧: 默认关闭, 见文件头
+			enabled: false,
+
+			workingColorSpace: LinearSRGBColorSpace,
+
+			/**
+			 * Implementations of supported color spaces.
+			 *
+			 * Required:
+			 *	- primaries: chromaticity coordinates [ rx ry gx gy bx by ]
+			 *	- whitePoint: reference white [ x y ]
+			 *	- transfer: transfer function (pre-defined)
+			 *	- toXYZ: Matrix3 RGB to XYZ transform
+			 *	- fromXYZ: Matrix3 XYZ to RGB transform
+			 *	- luminanceCoefficients: RGB luminance coefficients
+			 *
+			 * Optional:
+			 *  - outputColorSpaceConfig: { drawingBufferColorSpace: ColorSpace }
+			 *  - workingColorSpaceConfig: { unpackColorSpace: ColorSpace }
+			 */
+			spaces: {},
+
+			convert: function ( color, sourceColorSpace, targetColorSpace ) {
+
+				if ( this.enabled === false || sourceColorSpace === targetColorSpace || ! sourceColorSpace || ! targetColorSpace ) {
+
+					return color;
+
+				}
+
+				if ( this.spaces[ sourceColorSpace ].transfer === SRGBTransfer ) {
+
+					color.r = SRGBToLinear( color.r );
+					color.g = SRGBToLinear( color.g );
+					color.b = SRGBToLinear( color.b );
+
+				}
+
+				if ( this.spaces[ sourceColorSpace ].primaries !== this.spaces[ targetColorSpace ].primaries ) {
+
+					color.applyMatrix3( this.spaces[ sourceColorSpace ].toXYZ );
+					color.applyMatrix3( this.spaces[ targetColorSpace ].fromXYZ );
+
+				}
+
+				if ( this.spaces[ targetColorSpace ].transfer === SRGBTransfer ) {
+
+					color.r = LinearToSRGB( color.r );
+					color.g = LinearToSRGB( color.g );
+					color.b = LinearToSRGB( color.b );
+
+				}
+
+				return color;
+
+			},
+
+			workingToColorSpace: function ( color, targetColorSpace ) {
+
+				return this.convert( color, this.workingColorSpace, targetColorSpace );
+
+			},
+
+			colorSpaceToWorking: function ( color, sourceColorSpace ) {
+
+				return this.convert( color, sourceColorSpace, this.workingColorSpace );
+
+			},
+
+			getPrimaries: function ( colorSpace ) {
+
+				return this.spaces[ colorSpace ].primaries;
+
+			},
+
+			getTransfer: function ( colorSpace ) {
+
+				if ( colorSpace === NoColorSpace ) { return LinearTransfer; }
+
+				return this.spaces[ colorSpace ].transfer;
+
+			},
+
+			getLuminanceCoefficients: function ( target, colorSpace ) {
+
+				if ( colorSpace === undefined ) { colorSpace = this.workingColorSpace; }
+
+				return target.fromArray( this.spaces[ colorSpace ].luminanceCoefficients );
+
+			},
+
+			define: function ( colorSpaces ) {
+
+				Object.assign( this.spaces, colorSpaces );
+
+			},
+
+			// Internal APIs
+
+			_getMatrix: function ( targetMatrix, sourceColorSpace, targetColorSpace ) {
+
+				return targetMatrix
+					.copy( this.spaces[ sourceColorSpace ].toXYZ )
+					.multiply( this.spaces[ targetColorSpace ].fromXYZ );
+
+			},
+
+			_getDrawingBufferColorSpace: function ( colorSpace ) {
+
+				return this.spaces[ colorSpace ].outputColorSpaceConfig.drawingBufferColorSpace;
+
+			},
+
+			_getUnpackColorSpace: function ( colorSpace ) {
+
+				if ( colorSpace === undefined ) { colorSpace = this.workingColorSpace; }
+
+				return this.spaces[ colorSpace ].workingColorSpaceConfig.unpackColorSpace;
+
+			},
+
+			// Deprecated
+
+			fromWorkingColorSpace: function ( color, targetColorSpace ) {
+
+				warnOnce( 'ColorManagement: .fromWorkingColorSpace() has been renamed to .workingToColorSpace().' ); // @deprecated, r177
+
+				return ColorManagement.workingToColorSpace( color, targetColorSpace );
+
+			},
+
+			toWorkingColorSpace: function ( color, sourceColorSpace ) {
+
+				warnOnce( 'ColorManagement: .toWorkingColorSpace() has been renamed to .colorSpaceToWorking().' ); // @deprecated, r177
+
+				return ColorManagement.colorSpaceToWorking( color, sourceColorSpace );
+
+			}
+
+		};
+
+		/******************************************************************************
+		 * sRGB definitions
+		 */
+
+		var REC709_PRIMARIES = [ 0.640, 0.330, 0.300, 0.600, 0.150, 0.060 ];
+		var REC709_LUMINANCE_COEFFICIENTS = [ 0.2126, 0.7152, 0.0722 ];
+		var D65 = [ 0.3127, 0.3290 ];
+
+		var spaces = {};
+
+		spaces[ LinearSRGBColorSpace ] = {
+			primaries: REC709_PRIMARIES,
+			whitePoint: D65,
+			transfer: LinearTransfer,
+			toXYZ: LINEAR_REC709_TO_XYZ,
+			fromXYZ: XYZ_TO_LINEAR_REC709,
+			luminanceCoefficients: REC709_LUMINANCE_COEFFICIENTS,
+			workingColorSpaceConfig: { unpackColorSpace: SRGBColorSpace },
+			outputColorSpaceConfig: { drawingBufferColorSpace: SRGBColorSpace }
+		};
+
+		spaces[ SRGBColorSpace ] = {
+			primaries: REC709_PRIMARIES,
+			whitePoint: D65,
+			transfer: SRGBTransfer,
+			toXYZ: LINEAR_REC709_TO_XYZ,
+			fromXYZ: XYZ_TO_LINEAR_REC709,
+			luminanceCoefficients: REC709_LUMINANCE_COEFFICIENTS,
+			outputColorSpaceConfig: { drawingBufferColorSpace: SRGBColorSpace }
+		};
+
+		ColorManagement.define( spaces );
+
+		return ColorManagement;
+
+	}
+
+	var ColorManagement = createColorManagement();
+
+	function SRGBToLinear( c ) {
+
+		return ( c < 0.04045 ) ? c * 0.0773993808 : Math.pow( c * 0.9478672986 + 0.0521327014, 2.4 );
+
+	}
+
+	function LinearToSRGB( c ) {
+
+		return ( c < 0.0031308 ) ? c * 12.92 : 1.055 * ( Math.pow( c, 0.41666 ) ) - 0.055;
+
+	}
+
+	/**
+	 * @author mrdoob / http://mrdoob.com/
+	 *
+	 * backport from r185(部分): set 系入口按 r185 对齐, 支持可选 colorSpace 参数并经
+	 * ColorManagement 做 sRGB→working 转换。ColorManagement.enabled 默认 false(见该文件头),
+	 * 关闭时全部入口行为与 r110 逐位一致。
+	 */
+
 	var _colorKeywords = { 'aliceblue': 0xF0F8FF, 'antiquewhite': 0xFAEBD7, 'aqua': 0x00FFFF, 'aquamarine': 0x7FFFD4, 'azure': 0xF0FFFF,
 		'beige': 0xF5F5DC, 'bisque': 0xFFE4C4, 'black': 0x000000, 'blanchedalmond': 0xFFEBCD, 'blue': 0x0000FF, 'blueviolet': 0x8A2BE2,
 		'brown': 0xA52A2A, 'burlywood': 0xDEB887, 'cadetblue': 0x5F9EA0, 'chartreuse': 0x7FFF00, 'chocolate': 0xD2691E, 'coral': 0xFF7F50,
@@ -7934,6 +8409,7 @@
 
 	var _hslA = { h: 0, s: 0, l: 0 };
 	var _hslB = { h: 0, s: 0, l: 0 };
+	var _colorTemp;
 
 	function Color( r, g, b ) {
 
@@ -7959,13 +8435,13 @@
 
 	}
 
-	function SRGBToLinear( c ) {
+	function SRGBToLinear$1( c ) {
 
 		return ( c < 0.04045 ) ? c * 0.0773993808 : Math.pow( c * 0.9478672986 + 0.0521327014, 2.4 );
 
 	}
 
-	function LinearToSRGB( c ) {
+	function LinearToSRGB$1( c ) {
 
 		return ( c < 0.0031308 ) ? c * 12.92 : 1.055 * ( Math.pow( c, 0.41666 ) ) - 0.055;
 
@@ -8007,7 +8483,9 @@
 
 		},
 
-		setHex: function ( hex ) {
+		setHex: function ( hex, colorSpace ) {
+
+			if ( colorSpace === undefined ) { colorSpace = SRGBColorSpace; }
 
 			hex = Math.floor( hex );
 
@@ -8015,21 +8493,29 @@
 			this.g = ( hex >> 8 & 255 ) / 255;
 			this.b = ( hex & 255 ) / 255;
 
+			ColorManagement.colorSpaceToWorking( this, colorSpace );
+
 			return this;
 
 		},
 
-		setRGB: function ( r, g, b ) {
+		setRGB: function ( r, g, b, colorSpace ) {
+
+			if ( colorSpace === undefined ) { colorSpace = ColorManagement.workingColorSpace; }
 
 			this.r = r;
 			this.g = g;
 			this.b = b;
 
+			ColorManagement.colorSpaceToWorking( this, colorSpace );
+
 			return this;
 
 		},
 
-		setHSL: function ( h, s, l ) {
+		setHSL: function ( h, s, l, colorSpace ) {
+
+			if ( colorSpace === undefined ) { colorSpace = ColorManagement.workingColorSpace; }
 
 			// h,s,l ranges are in 0.0 - 1.0
 			h = _Math.euclideanModulo( h, 1 );
@@ -8051,11 +8537,15 @@
 
 			}
 
+			ColorManagement.colorSpaceToWorking( this, colorSpace );
+
 			return this;
 
 		},
 
-		setStyle: function ( style ) {
+		setStyle: function ( style, colorSpace ) {
+
+			if ( colorSpace === undefined ) { colorSpace = SRGBColorSpace; }
 
 			function handleAlpha( string ) {
 
@@ -8092,6 +8582,8 @@
 							this.g = Math.min( 255, parseInt( color[ 2 ], 10 ) ) / 255;
 							this.b = Math.min( 255, parseInt( color[ 3 ], 10 ) ) / 255;
 
+							ColorManagement.colorSpaceToWorking( this, colorSpace );
+
 							handleAlpha( color[ 5 ] );
 
 							return this;
@@ -8104,6 +8596,8 @@
 							this.r = Math.min( 100, parseInt( color[ 1 ], 10 ) ) / 100;
 							this.g = Math.min( 100, parseInt( color[ 2 ], 10 ) ) / 100;
 							this.b = Math.min( 100, parseInt( color[ 3 ], 10 ) ) / 100;
+
+							ColorManagement.colorSpaceToWorking( this, colorSpace );
 
 							handleAlpha( color[ 5 ] );
 
@@ -8125,7 +8619,7 @@
 
 							handleAlpha( color[ 5 ] );
 
-							return this.setHSL( h, s, l );
+							return this.setHSL( h, s, l, colorSpace );
 
 						}
 
@@ -8147,6 +8641,8 @@
 					this.g = parseInt( hex.charAt( 1 ) + hex.charAt( 1 ), 16 ) / 255;
 					this.b = parseInt( hex.charAt( 2 ) + hex.charAt( 2 ), 16 ) / 255;
 
+					ColorManagement.colorSpaceToWorking( this, colorSpace );
+
 					return this;
 
 				} else if ( size === 6 ) {
@@ -8156,6 +8652,8 @@
 					this.g = parseInt( hex.charAt( 2 ) + hex.charAt( 3 ), 16 ) / 255;
 					this.b = parseInt( hex.charAt( 4 ) + hex.charAt( 5 ), 16 ) / 255;
 
+					ColorManagement.colorSpaceToWorking( this, colorSpace );
+
 					return this;
 
 				}
@@ -8164,7 +8662,7 @@
 
 			if ( style && style.length > 0 ) {
 
-				return this.setColorName( style );
+				return this.setColorName( style, colorSpace );
 
 			}
 
@@ -8172,7 +8670,9 @@
 
 		},
 
-		setColorName: function ( style ) {
+		setColorName: function ( style, colorSpace ) {
+
+			if ( colorSpace === undefined ) { colorSpace = SRGBColorSpace; }
 
 			// color keywords
 			var hex = _colorKeywords[ style ];
@@ -8180,7 +8680,7 @@
 			if ( hex !== undefined ) {
 
 				// red
-				this.setHex( hex );
+				this.setHex( hex, colorSpace );
 
 			} else {
 
@@ -8253,9 +8753,9 @@
 
 		copySRGBToLinear: function ( color ) {
 
-			this.r = SRGBToLinear( color.r );
-			this.g = SRGBToLinear( color.g );
-			this.b = SRGBToLinear( color.b );
+			this.r = SRGBToLinear$1( color.r );
+			this.g = SRGBToLinear$1( color.g );
+			this.b = SRGBToLinear$1( color.b );
 
 			return this;
 
@@ -8263,9 +8763,9 @@
 
 		copyLinearToSRGB: function ( color ) {
 
-			this.r = LinearToSRGB( color.r );
-			this.g = LinearToSRGB( color.g );
-			this.b = LinearToSRGB( color.b );
+			this.r = LinearToSRGB$1( color.r );
+			this.g = LinearToSRGB$1( color.g );
+			this.b = LinearToSRGB$1( color.b );
 
 			return this;
 
@@ -8287,19 +8787,24 @@
 
 		},
 
-		getHex: function () {
+		getHex: function ( colorSpace ) {
 
-			return ( this.r * 255 ) << 16 ^ ( this.g * 255 ) << 8 ^ ( this.b * 255 ) << 0;
+			if ( colorSpace === undefined ) { colorSpace = SRGBColorSpace; }
+
+			// r110 兼容: 转换在临时色上进行(禁用色彩管理时与旧版逐位一致, 保留旧版截断语义)
+			ColorManagement.workingToColorSpace( _colorTemp.copy( this ), colorSpace );
+
+			return ( _colorTemp.r * 255 ) << 16 ^ ( _colorTemp.g * 255 ) << 8 ^ ( _colorTemp.b * 255 ) << 0;
 
 		},
 
-		getHexString: function () {
+		getHexString: function ( colorSpace ) {
 
-			return ( '000000' + this.getHex().toString( 16 ) ).slice( - 6 );
+			return ( '000000' + this.getHex( colorSpace ).toString( 16 ) ).slice( - 6 );
 
 		},
 
-		getHSL: function ( target ) {
+		getHSL: function ( target, colorSpace ) {
 
 			// h,s,l ranges are in 0.0 - 1.0
 
@@ -8310,7 +8815,11 @@
 
 			}
 
-			var r = this.r, g = this.g, b = this.b;
+			if ( colorSpace === undefined ) { colorSpace = ColorManagement.workingColorSpace; }
+
+			ColorManagement.workingToColorSpace( _colorTemp.copy( this ), colorSpace );
+
+			var r = _colorTemp.r, g = _colorTemp.g, b = _colorTemp.b;
 
 			var max = Math.max( r, g, b );
 			var min = Math.min( r, g, b );
@@ -8349,9 +8858,27 @@
 
 		},
 
-		getStyle: function () {
+		getStyle: function ( colorSpace ) {
 
-			return 'rgb(' + ( ( this.r * 255 ) | 0 ) + ',' + ( ( this.g * 255 ) | 0 ) + ',' + ( ( this.b * 255 ) | 0 ) + ')';
+			if ( colorSpace === undefined ) { colorSpace = SRGBColorSpace; }
+
+			ColorManagement.workingToColorSpace( _colorTemp.copy( this ), colorSpace );
+
+			return 'rgb(' + ( ( _colorTemp.r * 255 ) | 0 ) + ',' + ( ( _colorTemp.g * 255 ) | 0 ) + ',' + ( ( _colorTemp.b * 255 ) | 0 ) + ')';
+
+		},
+
+		// backport from r185: ColorManagement 跨 primaries 转换依赖
+		applyMatrix3: function ( m ) {
+
+			var r = this.r, g = this.g, b = this.b;
+			var e = m.elements;
+
+			this.r = e[ 0 ] * r + e[ 3 ] * g + e[ 6 ] * b;
+			this.g = e[ 1 ] * r + e[ 4 ] * g + e[ 7 ] * b;
+			this.b = e[ 2 ] * r + e[ 5 ] * g + e[ 8 ] * b;
+
+			return this;
 
 		},
 
@@ -8492,6 +9019,8 @@
 	} );
 
 	Color.NAMES = _colorKeywords;
+
+	_colorTemp = new Color();
 
 	/**
 	 * @author mrdoob / http://mrdoob.com/
@@ -9773,26 +10302,6 @@
 	} );
 
 	/**
-	 * @author mrdoob / http://mrdoob.com/
-	 */
-
-	function arrayMax( array ) {
-
-		if ( array.length === 0 ) { return - Infinity; }
-
-		var max = array[ 0 ];
-
-		for ( var i = 1, l = array.length; i < l; ++ i ) {
-
-			if ( array[ i ] > max ) { max = array[ i ]; }
-
-		}
-
-		return max;
-
-	}
-
-	/**
 	 * @author alteredq / http://alteredqualia.com/
 	 * @author mrdoob / http://mrdoob.com/
 	 */
@@ -9802,7 +10311,7 @@
 	var _m1$2 = new Matrix4();
 	var _obj = new Object3D();
 	var _offset = new Vector3();
-	var _box$1 = new Box3();
+	var _box$2 = new Box3();
 	var _boxMorphTargets = new Box3();
 	var _vector$4 = new Vector3();
 
@@ -10353,10 +10862,10 @@
 					for ( var i = 0, il = morphAttributesPosition.length; i < il; i ++ ) {
 
 						var morphAttribute = morphAttributesPosition[ i ];
-						_box$1.setFromBufferAttribute( morphAttribute );
+						_box$2.setFromBufferAttribute( morphAttribute );
 
-						this.boundingBox.expandByPoint( _box$1.min );
-						this.boundingBox.expandByPoint( _box$1.max );
+						this.boundingBox.expandByPoint( _box$2.min );
+						this.boundingBox.expandByPoint( _box$2.max );
 
 					}
 
@@ -10393,7 +10902,7 @@
 
 				var center = this.boundingSphere.center;
 
-				_box$1.setFromBufferAttribute( position );
+				_box$2.setFromBufferAttribute( position );
 
 				// process morph attributes if present
 
@@ -10404,14 +10913,14 @@
 						var morphAttribute = morphAttributesPosition[ i ];
 						_boxMorphTargets.setFromBufferAttribute( morphAttribute );
 
-						_box$1.expandByPoint( _boxMorphTargets.min );
-						_box$1.expandByPoint( _boxMorphTargets.max );
+						_box$2.expandByPoint( _boxMorphTargets.min );
+						_box$2.expandByPoint( _boxMorphTargets.max );
 
 					}
 
 				}
 
-				_box$1.getCenter( center );
+				_box$2.getCenter( center );
 
 				// second, try to find a boundingSphere with a radius smaller than the
 				// boundingSphere of the boundingBox: sqrt(3) smaller in the best case
@@ -13861,9 +14370,17 @@
 	 * @author mrdoob / http://mrdoob.com/
 	 * @author alteredq / http://alteredqualia.com/
 	 * @author bhouston / http://clara.io
+	 *
+	 * backport from r185(阶段二 4.1#2):
+	 * - setFromProjectionMatrix: 新 API 名(WebGL 坐标系语义, 与旧 setFromMatrix 同算法);
+	 *   setFromMatrix 保留为别名, 渲染器与业务旧调用零改动
+	 * - intersectsObject: 优先消费对象级 boundingSphere(InstancedMesh/BatchedMesh
+	 *   的整体包围球), 无对象级包围球时回退几何级(旧行为)
+	 * - intersectsSprite: 半径按 sprite.center 偏移量补偿(修非居中锚点被误剔除)
 	 */
 
 	var _sphere$1 = new Sphere();
+	var _defaultSpriteCenter = new Vector2( 0.5, 0.5 );
 	var _vector$5 = new Vector3();
 
 	function Frustum( p0, p1, p2, p3, p4, p5 ) {
@@ -13918,7 +14435,7 @@
 
 		},
 
-		setFromMatrix: function ( m ) {
+		setFromProjectionMatrix: function ( m ) {
 
 			var planes = this.planes;
 			var me = m.elements;
@@ -13931,20 +14448,37 @@
 			planes[ 1 ].setComponents( me3 + me0, me7 + me4, me11 + me8, me15 + me12 ).normalize();
 			planes[ 2 ].setComponents( me3 + me1, me7 + me5, me11 + me9, me15 + me13 ).normalize();
 			planes[ 3 ].setComponents( me3 - me1, me7 - me5, me11 - me9, me15 - me13 ).normalize();
-			planes[ 4 ].setComponents( me3 - me2, me7 - me6, me11 - me10, me15 - me14 ).normalize();
-			planes[ 5 ].setComponents( me3 + me2, me7 + me6, me11 + me10, me15 + me14 ).normalize();
+			planes[ 4 ].setComponents( me3 - me2, me7 - me6, me11 - me10, me15 - me14 ).normalize(); // far
+			planes[ 5 ].setComponents( me3 + me2, me7 + me6, me11 + me10, me15 + me14 ).normalize(); // near
 
 			return this;
 
 		},
 
+		// 旧 API 别名(r110 渲染器与业务侧调用点保持兼容)
+		setFromMatrix: function ( m ) {
+
+			return this.setFromProjectionMatrix( m );
+
+		},
+
 		intersectsObject: function ( object ) {
 
-			var geometry = object.geometry;
+			if ( object.boundingSphere !== undefined ) {
 
-			if ( geometry.boundingSphere === null ) { geometry.computeBoundingSphere(); }
+				if ( object.boundingSphere === null ) { object.computeBoundingSphere(); }
 
-			_sphere$1.copy( geometry.boundingSphere ).applyMatrix4( object.matrixWorld );
+				_sphere$1.copy( object.boundingSphere ).applyMatrix4( object.matrixWorld );
+
+			} else {
+
+				var geometry = object.geometry;
+
+				if ( geometry.boundingSphere === null ) { geometry.computeBoundingSphere(); }
+
+				_sphere$1.copy( geometry.boundingSphere ).applyMatrix4( object.matrixWorld );
+
+			}
 
 			return this.intersectsSphere( _sphere$1 );
 
@@ -13953,7 +14487,10 @@
 		intersectsSprite: function ( sprite ) {
 
 			_sphere$1.center.set( 0, 0, 0 );
-			_sphere$1.radius = 0.7071067811865476;
+
+			var offset = ( sprite.center !== undefined ) ? _defaultSpriteCenter.distanceTo( sprite.center ) : 0;
+
+			_sphere$1.radius = 0.7071067811865476 + offset;
 			_sphere$1.applyMatrix4( sprite.matrixWorld );
 
 			return this.intersectsSphere( _sphere$1 );
@@ -14038,6 +14575,15 @@
 
 	var aomap_pars_fragment = "#ifdef USE_AOMAP\n\tuniform sampler2D aoMap;\n\tuniform float aoMapIntensity;\n#endif";
 
+	// backport from r185, GLSL 100 改造版(阶段三 4.2#2):
+	// texelFetch/textureSize -> texture2D + size uniform(套用 r110 boneTexture 采样模板);
+	// usampler2D 整数间接纹理 -> float RGBA 纹理(id 存 .r 通道);
+	// 无 WEBGL_multi_draw 扩展时渲染器循环 draw 并逐段更新 _gl_DrawID uniform
+	var batching_pars_vertex = "#ifdef USE_BATCHING\n\t#ifndef GL_ANGLE_multi_draw\n\t\t#define gl_DrawID _gl_DrawID\n\t\tuniform int _gl_DrawID;\n\t#endif\n\tuniform highp sampler2D batchingTexture;\n\tuniform int batchingTextureSize;\n\tmat4 getBatchingMatrix( const in float i ) {\n\t\tfloat j = i * 4.0;\n\t\tfloat x = mod( j, float( batchingTextureSize ) );\n\t\tfloat y = floor( j / float( batchingTextureSize ) );\n\t\tfloat dx = 1.0 / float( batchingTextureSize );\n\t\tfloat dy = 1.0 / float( batchingTextureSize );\n\t\ty = dy * ( y + 0.5 );\n\t\tvec4 v1 = texture2D( batchingTexture, vec2( dx * ( x + 0.5 ), y ) );\n\t\tvec4 v2 = texture2D( batchingTexture, vec2( dx * ( x + 1.5 ), y ) );\n\t\tvec4 v3 = texture2D( batchingTexture, vec2( dx * ( x + 2.5 ), y ) );\n\t\tvec4 v4 = texture2D( batchingTexture, vec2( dx * ( x + 3.5 ), y ) );\n\t\treturn mat4( v1, v2, v3, v4 );\n\t}\n\tuniform highp sampler2D batchingIdTexture;\n\tuniform int batchingIdTextureSize;\n\tfloat getIndirectIndex( const in int i ) {\n\t\tfloat j = float( i );\n\t\tfloat x = mod( j, float( batchingIdTextureSize ) );\n\t\tfloat y = floor( j / float( batchingIdTextureSize ) );\n\t\tfloat dx = 1.0 / float( batchingIdTextureSize );\n\t\tfloat dy = 1.0 / float( batchingIdTextureSize );\n\t\treturn texture2D( batchingIdTexture, vec2( dx * ( x + 0.5 ), dy * ( y + 0.5 ) ) ).r;\n\t}\n#endif\n#ifdef USE_BATCHING_COLOR\n\tuniform sampler2D batchingColorTexture;\n\tuniform int batchingColorTextureSize;\n\tvec4 getBatchingColor( const in float i ) {\n\t\tfloat x = mod( i, float( batchingColorTextureSize ) );\n\t\tfloat y = floor( i / float( batchingColorTextureSize ) );\n\t\tfloat dx = 1.0 / float( batchingColorTextureSize );\n\t\tfloat dy = 1.0 / float( batchingColorTextureSize );\n\t\treturn texture2D( batchingColorTexture, vec2( dx * ( x + 0.5 ), dy * ( y + 0.5 ) ) );\n\t}\n#endif";
+
+	// backport from r185(阶段三 4.2#2)
+	var batching_vertex = "#ifdef USE_BATCHING\n\tmat4 batchingMatrix = getBatchingMatrix( getIndirectIndex( gl_DrawID ) );\n#endif";
+
 	var begin_vertex = "vec3 transformed = vec3( position );";
 
 	var beginnormal_vertex = "vec3 objectNormal = vec3( normal );\n#ifdef USE_TANGENT\n\tvec3 objectTangent = vec3( tangent.xyz );\n#endif";
@@ -14054,19 +14600,27 @@
 
 	var clipping_planes_vertex = "#if NUM_CLIPPING_PLANES > 0 && ! defined( STANDARD ) && ! defined( PHONG ) && ! defined( MATCAP )\n\tvViewPosition = - mvPosition.xyz;\n#endif";
 
-	var color_fragment = "#ifdef USE_COLOR\n\tdiffuseColor.rgb *= vColor;\n#endif";
+	// backport from r185(阶段三 4.2#1/#2): vec4 整体相乘(alpha 随 batchingColor 生效)
+	var color_fragment = "#ifdef USE_COLOR\n\tdiffuseColor *= vColor;\n#endif";
 
-	var color_pars_fragment = "#ifdef USE_COLOR\n\tvarying vec3 vColor;\n#endif";
+	// backport from r185(阶段三 4.2#1/#2): vColor 升为 vec4
+	// (片元侧 USE_COLOR 在 instancingColor/batchingColor 时由 WebGLProgram 补 define)
+	var color_pars_fragment = "#ifdef USE_COLOR\n\tvarying vec4 vColor;\n#endif";
 
-	var color_pars_vertex = "#ifdef USE_COLOR\n\tvarying vec3 vColor;\n#endif";
+	// backport from r185(阶段三 4.2#1/#2): vColor 升为 vec4,
+	// 兼容 instanceColor / batchingColor(RGBA) 通道
+	var color_pars_vertex = "#if defined( USE_COLOR ) || defined( USE_INSTANCING_COLOR ) || defined( USE_BATCHING_COLOR )\n\tvarying vec4 vColor;\n#endif";
 
-	var color_vertex = "#ifdef USE_COLOR\n\tvColor.xyz = color.xyz;\n#endif";
+	// backport from r185(阶段三 4.2#1/#2): 顶点色 × 实例色 × 合批色 组合
+	var color_vertex = "#if defined( USE_COLOR ) || defined( USE_INSTANCING_COLOR ) || defined( USE_BATCHING_COLOR )\n\tvColor = vec4( 1.0 );\n#endif\n#ifdef USE_COLOR\n\tvColor.rgb *= color.rgb;\n#endif\n#ifdef USE_INSTANCING_COLOR\n\tvColor.rgb *= instanceColor.rgb;\n#endif\n#ifdef USE_BATCHING_COLOR\n\tvColor *= getBatchingColor( getIndirectIndex( gl_DrawID ) );\n#endif";
 
 	var common = "#define PI 3.14159265359\n#define PI2 6.28318530718\n#define PI_HALF 1.5707963267949\n#define RECIPROCAL_PI 0.31830988618\n#define RECIPROCAL_PI2 0.15915494\n#define LOG2 1.442695\n#define EPSILON 1e-6\n#ifndef saturate\n#define saturate(a) clamp( a, 0.0, 1.0 )\n#endif\n#define whiteComplement(a) ( 1.0 - saturate( a ) )\nfloat pow2( const in float x ) { return x*x; }\nfloat pow3( const in float x ) { return x*x*x; }\nfloat pow4( const in float x ) { float x2 = x*x; return x2*x2; }\nfloat average( const in vec3 color ) { return dot( color, vec3( 0.3333 ) ); }\nhighp float rand( const in vec2 uv ) {\n\tconst highp float a = 12.9898, b = 78.233, c = 43758.5453;\n\thighp float dt = dot( uv.xy, vec2( a,b ) ), sn = mod( dt, PI );\n\treturn fract(sin(sn) * c);\n}\n#ifdef HIGH_PRECISION\n\tfloat precisionSafeLength( vec3 v ) { return length( v ); }\n#else\n\tfloat max3( vec3 v ) { return max( max( v.x, v.y ), v.z ); }\n\tfloat precisionSafeLength( vec3 v ) {\n\t\tfloat maxComponent = max3( abs( v ) );\n\t\treturn length( v / maxComponent ) * maxComponent;\n\t}\n#endif\nstruct IncidentLight {\n\tvec3 color;\n\tvec3 direction;\n\tbool visible;\n};\nstruct ReflectedLight {\n\tvec3 directDiffuse;\n\tvec3 directSpecular;\n\tvec3 indirectDiffuse;\n\tvec3 indirectSpecular;\n};\nstruct GeometricContext {\n\tvec3 position;\n\tvec3 normal;\n\tvec3 viewDir;\n#ifdef CLEARCOAT\n\tvec3 clearcoatNormal;\n#endif\n};\nvec3 transformDirection( in vec3 dir, in mat4 matrix ) {\n\treturn normalize( ( matrix * vec4( dir, 0.0 ) ).xyz );\n}\nvec3 inverseTransformDirection( in vec3 dir, in mat4 matrix ) {\n\treturn normalize( ( vec4( dir, 0.0 ) * matrix ).xyz );\n}\nvec3 projectOnPlane(in vec3 point, in vec3 pointOnPlane, in vec3 planeNormal ) {\n\tfloat distance = dot( planeNormal, point - pointOnPlane );\n\treturn - distance * planeNormal + point;\n}\nfloat sideOfPlane( in vec3 point, in vec3 pointOnPlane, in vec3 planeNormal ) {\n\treturn sign( dot( point - pointOnPlane, planeNormal ) );\n}\nvec3 linePlaneIntersect( in vec3 pointOnLine, in vec3 lineDirection, in vec3 pointOnPlane, in vec3 planeNormal ) {\n\treturn lineDirection * ( dot( planeNormal, pointOnPlane - pointOnLine ) / dot( planeNormal, lineDirection ) ) + pointOnLine;\n}\nmat3 transposeMat3( const in mat3 m ) {\n\tmat3 tmp;\n\ttmp[ 0 ] = vec3( m[ 0 ].x, m[ 1 ].x, m[ 2 ].x );\n\ttmp[ 1 ] = vec3( m[ 0 ].y, m[ 1 ].y, m[ 2 ].y );\n\ttmp[ 2 ] = vec3( m[ 0 ].z, m[ 1 ].z, m[ 2 ].z );\n\treturn tmp;\n}\nfloat linearToRelativeLuminance( const in vec3 color ) {\n\tvec3 weights = vec3( 0.2126, 0.7152, 0.0722 );\n\treturn dot( weights, color.rgb );\n}\nbool isPerspectiveMatrix( mat4 m ) {\n  return m[ 2 ][ 3 ] == - 1.0;\n}";
 
 	var cube_uv_reflection_fragment = "#ifdef ENVMAP_TYPE_CUBE_UV\n#define cubeUV_textureSize (1024.0)\nint getFaceFromDirection(vec3 direction) {\n\tvec3 absDirection = abs(direction);\n\tint face = -1;\n\tif( absDirection.x > absDirection.z ) {\n\t\tif(absDirection.x > absDirection.y )\n\t\t\tface = direction.x > 0.0 ? 0 : 3;\n\t\telse\n\t\t\tface = direction.y > 0.0 ? 1 : 4;\n\t}\n\telse {\n\t\tif(absDirection.z > absDirection.y )\n\t\t\tface = direction.z > 0.0 ? 2 : 5;\n\t\telse\n\t\t\tface = direction.y > 0.0 ? 1 : 4;\n\t}\n\treturn face;\n}\n#define cubeUV_maxLods1  (log2(cubeUV_textureSize*0.25) - 1.0)\n#define cubeUV_rangeClamp (exp2((6.0 - 1.0) * 2.0))\nvec2 MipLevelInfo( vec3 vec, float roughnessLevel, float roughness ) {\n\tfloat scale = exp2(cubeUV_maxLods1 - roughnessLevel);\n\tfloat dxRoughness = dFdx(roughness);\n\tfloat dyRoughness = dFdy(roughness);\n\tvec3 dx = dFdx( vec * scale * dxRoughness );\n\tvec3 dy = dFdy( vec * scale * dyRoughness );\n\tfloat d = max( dot( dx, dx ), dot( dy, dy ) );\n\td = clamp(d, 1.0, cubeUV_rangeClamp);\n\tfloat mipLevel = 0.5 * log2(d);\n\treturn vec2(floor(mipLevel), fract(mipLevel));\n}\n#define cubeUV_maxLods2 (log2(cubeUV_textureSize*0.25) - 2.0)\n#define cubeUV_rcpTextureSize (1.0 / cubeUV_textureSize)\nvec2 getCubeUV(vec3 direction, float roughnessLevel, float mipLevel) {\n\tmipLevel = roughnessLevel > cubeUV_maxLods2 - 3.0 ? 0.0 : mipLevel;\n\tfloat a = 16.0 * cubeUV_rcpTextureSize;\n\tvec2 exp2_packed = exp2( vec2( roughnessLevel, mipLevel ) );\n\tvec2 rcp_exp2_packed = vec2( 1.0 ) / exp2_packed;\n\tfloat powScale = exp2_packed.x * exp2_packed.y;\n\tfloat scale = rcp_exp2_packed.x * rcp_exp2_packed.y * 0.25;\n\tfloat mipOffset = 0.75*(1.0 - rcp_exp2_packed.y) * rcp_exp2_packed.x;\n\tbool bRes = mipLevel == 0.0;\n\tscale =  bRes && (scale < a) ? a : scale;\n\tvec3 r;\n\tvec2 offset;\n\tint face = getFaceFromDirection(direction);\n\tfloat rcpPowScale = 1.0 / powScale;\n\tif( face == 0) {\n\t\tr = vec3(direction.x, -direction.z, direction.y);\n\t\toffset = vec2(0.0+mipOffset,0.75 * rcpPowScale);\n\t\toffset.y = bRes && (offset.y < 2.0*a) ? a : offset.y;\n\t}\n\telse if( face == 1) {\n\t\tr = vec3(direction.y, direction.x, direction.z);\n\t\toffset = vec2(scale+mipOffset, 0.75 * rcpPowScale);\n\t\toffset.y = bRes && (offset.y < 2.0*a) ? a : offset.y;\n\t}\n\telse if( face == 2) {\n\t\tr = vec3(direction.z, direction.x, direction.y);\n\t\toffset = vec2(2.0*scale+mipOffset, 0.75 * rcpPowScale);\n\t\toffset.y = bRes && (offset.y < 2.0*a) ? a : offset.y;\n\t}\n\telse if( face == 3) {\n\t\tr = vec3(direction.x, direction.z, direction.y);\n\t\toffset = vec2(0.0+mipOffset,0.5 * rcpPowScale);\n\t\toffset.y = bRes && (offset.y < 2.0*a) ? 0.0 : offset.y;\n\t}\n\telse if( face == 4) {\n\t\tr = vec3(direction.y, direction.x, -direction.z);\n\t\toffset = vec2(scale+mipOffset, 0.5 * rcpPowScale);\n\t\toffset.y = bRes && (offset.y < 2.0*a) ? 0.0 : offset.y;\n\t}\n\telse {\n\t\tr = vec3(direction.z, -direction.x, direction.y);\n\t\toffset = vec2(2.0*scale+mipOffset, 0.5 * rcpPowScale);\n\t\toffset.y = bRes && (offset.y < 2.0*a) ? 0.0 : offset.y;\n\t}\n\tr = normalize(r);\n\tfloat texelOffset = 0.5 * cubeUV_rcpTextureSize;\n\tvec2 s = ( r.yz / abs( r.x ) + vec2( 1.0 ) ) * 0.5;\n\tvec2 base = offset + vec2( texelOffset );\n\treturn base + s * ( scale - 2.0 * texelOffset );\n}\n#define cubeUV_maxLods3 (log2(cubeUV_textureSize*0.25) - 3.0)\nvec4 textureCubeUV( sampler2D envMap, vec3 reflectedDirection, float roughness ) {\n\tfloat roughnessVal = roughness* cubeUV_maxLods3;\n\tfloat r1 = floor(roughnessVal);\n\tfloat r2 = r1 + 1.0;\n\tfloat t = fract(roughnessVal);\n\tvec2 mipInfo = MipLevelInfo(reflectedDirection, r1, roughness);\n\tfloat s = mipInfo.y;\n\tfloat level0 = mipInfo.x;\n\tfloat level1 = level0 + 1.0;\n\tlevel1 = level1 > 5.0 ? 5.0 : level1;\n\tlevel0 += min( floor( s + 0.5 ), 5.0 );\n\tvec2 uv_10 = getCubeUV(reflectedDirection, r1, level0);\n\tvec4 color10 = envMapTexelToLinear(texture2D(envMap, uv_10));\n\tvec2 uv_20 = getCubeUV(reflectedDirection, r2, level0);\n\tvec4 color20 = envMapTexelToLinear(texture2D(envMap, uv_20));\n\tvec4 result = mix(color10, color20, t);\n\treturn vec4(result.rgb, 1.0);\n}\n#endif";
 
-	var defaultnormal_vertex = "vec3 transformedNormal = objectNormal;\n#ifdef USE_INSTANCING\n\ttransformedNormal = mat3( instanceMatrix ) * transformedNormal;\n#endif\ntransformedNormal = normalMatrix * transformedNormal;\n#ifdef FLIP_SIDED\n\ttransformedNormal = - transformedNormal;\n#endif\n#ifdef USE_TANGENT\n\tvec3 transformedTangent = normalMatrix * objectTangent;\n\t#ifdef FLIP_SIDED\n\t\ttransformedTangent = - transformedTangent;\n\t#endif\n#endif";
+	// backport from r185(阶段三 4.2#1/#2): 增加 USE_BATCHING 法线分支;
+	// instancing/batching 法线均按 r185 做逐轴缩放补偿(非均匀缩放下法线正确)
+	var defaultnormal_vertex = "vec3 transformedNormal = objectNormal;\n#ifdef USE_BATCHING\n\tmat3 bm = mat3( batchingMatrix );\n\ttransformedNormal /= vec3( dot( bm[ 0 ], bm[ 0 ] ), dot( bm[ 1 ], bm[ 1 ] ), dot( bm[ 2 ], bm[ 2 ] ) );\n\ttransformedNormal = bm * transformedNormal;\n#endif\n#ifdef USE_INSTANCING\n\tmat3 im = mat3( instanceMatrix );\n\ttransformedNormal /= vec3( dot( im[ 0 ], im[ 0 ] ), dot( im[ 1 ], im[ 1 ] ), dot( im[ 2 ], im[ 2 ] ) );\n\ttransformedNormal = im * transformedNormal;\n#endif\ntransformedNormal = normalMatrix * transformedNormal;\n#ifdef FLIP_SIDED\n\ttransformedNormal = - transformedNormal;\n#endif\n#ifdef USE_TANGENT\n\tvec3 transformedTangent = normalMatrix * objectTangent;\n\t#ifdef FLIP_SIDED\n\t\ttransformedTangent = - transformedTangent;\n\t#endif\n#endif";
 
 	var displacementmap_pars_vertex = "#ifdef USE_DISPLACEMENTMAP\n\tuniform sampler2D displacementMap;\n\tuniform float displacementScale;\n\tuniform float displacementBias;\n#endif";
 
@@ -14166,7 +14720,8 @@
 
 	var premultiplied_alpha_fragment = "#ifdef PREMULTIPLIED_ALPHA\n\tgl_FragColor.rgb *= gl_FragColor.a;\n#endif";
 
-	var project_vertex = "vec4 mvPosition = vec4( transformed, 1.0 );\n#ifdef USE_INSTANCING\n\tmvPosition = instanceMatrix * mvPosition;\n#endif\nmvPosition = modelViewMatrix * mvPosition;\ngl_Position = projectionMatrix * mvPosition;";
+	// backport from r185(阶段三 4.2#2): 增加 USE_BATCHING 位姿分支
+	var project_vertex = "vec4 mvPosition = vec4( transformed, 1.0 );\n#ifdef USE_BATCHING\n\tmvPosition = batchingMatrix * mvPosition;\n#endif\n#ifdef USE_INSTANCING\n\tmvPosition = instanceMatrix * mvPosition;\n#endif\nmvPosition = modelViewMatrix * mvPosition;\ngl_Position = projectionMatrix * mvPosition;";
 
 	var dithering_fragment = "#ifdef DITHERING\n\tgl_FragColor.rgb = dithering( gl_FragColor.rgb );\n#endif";
 
@@ -14212,7 +14767,8 @@
 
 	var uv2_vertex = "#if defined( USE_LIGHTMAP ) || defined( USE_AOMAP )\n\tvUv2 = uv2;\n#endif";
 
-	var worldpos_vertex = "#if defined( USE_ENVMAP ) || defined( DISTANCE ) || defined ( USE_SHADOWMAP )\n\tvec4 worldPosition = vec4( transformed, 1.0 );\n\t#ifdef USE_INSTANCING\n\t\tworldPosition = instanceMatrix * worldPosition;\n\t#endif\n\tworldPosition = modelMatrix * worldPosition;\n#endif";
+	// backport from r185(阶段三 4.2#2): 增加 USE_BATCHING 位姿分支
+	var worldpos_vertex = "#if defined( USE_ENVMAP ) || defined( DISTANCE ) || defined ( USE_SHADOWMAP )\n\tvec4 worldPosition = vec4( transformed, 1.0 );\n\t#ifdef USE_BATCHING\n\t\tworldPosition = batchingMatrix * worldPosition;\n\t#endif\n\t#ifdef USE_INSTANCING\n\t\tworldPosition = instanceMatrix * worldPosition;\n\t#endif\n\tworldPosition = modelMatrix * worldPosition;\n#endif";
 
 	var background_frag = "uniform sampler2D t2D;\nvarying vec2 vUv;\nvoid main() {\n\tvec4 texColor = texture2D( t2D, vUv );\n\tgl_FragColor = mapTexelToLinear( texColor );\n\t#include <tonemapping_fragment>\n\t#include <encodings_fragment>\n}";
 
@@ -14224,11 +14780,11 @@
 
 	var depth_frag = "#if DEPTH_PACKING == 3200\n\tuniform float opacity;\n#endif\n#include <common>\n#include <packing>\n#include <uv_pars_fragment>\n#include <map_pars_fragment>\n#include <alphamap_pars_fragment>\n#include <logdepthbuf_pars_fragment>\n#include <clipping_planes_pars_fragment>\nvoid main() {\n\t#include <clipping_planes_fragment>\n\tvec4 diffuseColor = vec4( 1.0 );\n\t#if DEPTH_PACKING == 3200\n\t\tdiffuseColor.a = opacity;\n\t#endif\n\t#include <map_fragment>\n\t#include <alphamap_fragment>\n\t#include <alphatest_fragment>\n\t#include <logdepthbuf_fragment>\n\t#if DEPTH_PACKING == 3200\n\t\tgl_FragColor = vec4( vec3( 1.0 - gl_FragCoord.z ), opacity );\n\t#elif DEPTH_PACKING == 3201\n\t\tgl_FragColor = packDepthToRGBA( gl_FragCoord.z );\n\t#endif\n}";
 
-	var depth_vert = "#include <common>\n#include <uv_pars_vertex>\n#include <displacementmap_pars_vertex>\n#include <morphtarget_pars_vertex>\n#include <skinning_pars_vertex>\n#include <logdepthbuf_pars_vertex>\n#include <clipping_planes_pars_vertex>\nvoid main() {\n\t#include <uv_vertex>\n\t#include <skinbase_vertex>\n\t#ifdef USE_DISPLACEMENTMAP\n\t\t#include <beginnormal_vertex>\n\t\t#include <morphnormal_vertex>\n\t\t#include <skinnormal_vertex>\n\t#endif\n\t#include <begin_vertex>\n\t#include <morphtarget_vertex>\n\t#include <skinning_vertex>\n\t#include <displacementmap_vertex>\n\t#include <project_vertex>\n\t#include <logdepthbuf_vertex>\n\t#include <clipping_planes_vertex>\n}";
+	var depth_vert = "#include <common>\n#include <batching_pars_vertex>\n#include <uv_pars_vertex>\n#include <displacementmap_pars_vertex>\n#include <morphtarget_pars_vertex>\n#include <skinning_pars_vertex>\n#include <logdepthbuf_pars_vertex>\n#include <clipping_planes_pars_vertex>\nvoid main() {\n\t#include <uv_vertex>\n\t#include <batching_vertex>\n\t#include <skinbase_vertex>\n\t#ifdef USE_DISPLACEMENTMAP\n\t\t#include <beginnormal_vertex>\n\t\t#include <morphnormal_vertex>\n\t\t#include <skinnormal_vertex>\n\t#endif\n\t#include <begin_vertex>\n\t#include <morphtarget_vertex>\n\t#include <skinning_vertex>\n\t#include <displacementmap_vertex>\n\t#include <project_vertex>\n\t#include <logdepthbuf_vertex>\n\t#include <clipping_planes_vertex>\n}";
 
 	var distanceRGBA_frag = "#define DISTANCE\nuniform vec3 referencePosition;\nuniform float nearDistance;\nuniform float farDistance;\nvarying vec3 vWorldPosition;\n#include <common>\n#include <packing>\n#include <uv_pars_fragment>\n#include <map_pars_fragment>\n#include <alphamap_pars_fragment>\n#include <clipping_planes_pars_fragment>\nvoid main () {\n\t#include <clipping_planes_fragment>\n\tvec4 diffuseColor = vec4( 1.0 );\n\t#include <map_fragment>\n\t#include <alphamap_fragment>\n\t#include <alphatest_fragment>\n\tfloat dist = length( vWorldPosition - referencePosition );\n\tdist = ( dist - nearDistance ) / ( farDistance - nearDistance );\n\tdist = saturate( dist );\n\tgl_FragColor = packDepthToRGBA( dist );\n}";
 
-	var distanceRGBA_vert = "#define DISTANCE\nvarying vec3 vWorldPosition;\n#include <common>\n#include <uv_pars_vertex>\n#include <displacementmap_pars_vertex>\n#include <morphtarget_pars_vertex>\n#include <skinning_pars_vertex>\n#include <clipping_planes_pars_vertex>\nvoid main() {\n\t#include <uv_vertex>\n\t#include <skinbase_vertex>\n\t#ifdef USE_DISPLACEMENTMAP\n\t\t#include <beginnormal_vertex>\n\t\t#include <morphnormal_vertex>\n\t\t#include <skinnormal_vertex>\n\t#endif\n\t#include <begin_vertex>\n\t#include <morphtarget_vertex>\n\t#include <skinning_vertex>\n\t#include <displacementmap_vertex>\n\t#include <project_vertex>\n\t#include <worldpos_vertex>\n\t#include <clipping_planes_vertex>\n\tvWorldPosition = worldPosition.xyz;\n}";
+	var distanceRGBA_vert = "#define DISTANCE\nvarying vec3 vWorldPosition;\n#include <common>\n#include <batching_pars_vertex>\n#include <uv_pars_vertex>\n#include <displacementmap_pars_vertex>\n#include <morphtarget_pars_vertex>\n#include <skinning_pars_vertex>\n#include <clipping_planes_pars_vertex>\nvoid main() {\n\t#include <uv_vertex>\n\t#include <batching_vertex>\n\t#include <skinbase_vertex>\n\t#ifdef USE_DISPLACEMENTMAP\n\t\t#include <beginnormal_vertex>\n\t\t#include <morphnormal_vertex>\n\t\t#include <skinnormal_vertex>\n\t#endif\n\t#include <begin_vertex>\n\t#include <morphtarget_vertex>\n\t#include <skinning_vertex>\n\t#include <displacementmap_vertex>\n\t#include <project_vertex>\n\t#include <worldpos_vertex>\n\t#include <clipping_planes_vertex>\n\tvWorldPosition = worldPosition.xyz;\n}";
 
 	var equirect_frag = "uniform sampler2D tEquirect;\nvarying vec3 vWorldDirection;\n#include <common>\nvoid main() {\n\tvec3 direction = normalize( vWorldDirection );\n\tvec2 sampleUV;\n\tsampleUV.y = asin( clamp( direction.y, - 1.0, 1.0 ) ) * RECIPROCAL_PI + 0.5;\n\tsampleUV.x = atan( direction.z, direction.x ) * RECIPROCAL_PI2 + 0.5;\n\tvec4 texColor = texture2D( tEquirect, sampleUV );\n\tgl_FragColor = mapTexelToLinear( texColor );\n\t#include <tonemapping_fragment>\n\t#include <encodings_fragment>\n}";
 
@@ -14240,27 +14796,27 @@
 
 	var meshbasic_frag = "uniform vec3 diffuse;\nuniform float opacity;\n#ifndef FLAT_SHADED\n\tvarying vec3 vNormal;\n#endif\n#include <common>\n#include <color_pars_fragment>\n#include <uv_pars_fragment>\n#include <uv2_pars_fragment>\n#include <map_pars_fragment>\n#include <alphamap_pars_fragment>\n#include <aomap_pars_fragment>\n#include <lightmap_pars_fragment>\n#include <envmap_common_pars_fragment>\n#include <envmap_pars_fragment>\n#include <fog_pars_fragment>\n#include <specularmap_pars_fragment>\n#include <logdepthbuf_pars_fragment>\n#include <clipping_planes_pars_fragment>\nvoid main() {\n\t#include <clipping_planes_fragment>\n\tvec4 diffuseColor = vec4( diffuse, opacity );\n\t#include <logdepthbuf_fragment>\n\t#include <map_fragment>\n\t#include <color_fragment>\n\t#include <alphamap_fragment>\n\t#include <alphatest_fragment>\n\t#include <specularmap_fragment>\n\tReflectedLight reflectedLight = ReflectedLight( vec3( 0.0 ), vec3( 0.0 ), vec3( 0.0 ), vec3( 0.0 ) );\n\t#ifdef USE_LIGHTMAP\n\t\treflectedLight.indirectDiffuse += texture2D( lightMap, vUv2 ).xyz * lightMapIntensity;\n\t#else\n\t\treflectedLight.indirectDiffuse += vec3( 1.0 );\n\t#endif\n\t#include <aomap_fragment>\n\treflectedLight.indirectDiffuse *= diffuseColor.rgb;\n\tvec3 outgoingLight = reflectedLight.indirectDiffuse;\n\t#include <envmap_fragment>\n\tgl_FragColor = vec4( outgoingLight, diffuseColor.a );\n\t#include <premultiplied_alpha_fragment>\n\t#include <tonemapping_fragment>\n\t#include <encodings_fragment>\n\t#include <fog_fragment>\n}";
 
-	var meshbasic_vert = "#include <common>\n#include <uv_pars_vertex>\n#include <uv2_pars_vertex>\n#include <envmap_pars_vertex>\n#include <color_pars_vertex>\n#include <fog_pars_vertex>\n#include <morphtarget_pars_vertex>\n#include <skinning_pars_vertex>\n#include <logdepthbuf_pars_vertex>\n#include <clipping_planes_pars_vertex>\nvoid main() {\n\t#include <uv_vertex>\n\t#include <uv2_vertex>\n\t#include <color_vertex>\n\t#include <skinbase_vertex>\n\t#ifdef USE_ENVMAP\n\t#include <beginnormal_vertex>\n\t#include <morphnormal_vertex>\n\t#include <skinnormal_vertex>\n\t#include <defaultnormal_vertex>\n\t#endif\n\t#include <begin_vertex>\n\t#include <morphtarget_vertex>\n\t#include <skinning_vertex>\n\t#include <project_vertex>\n\t#include <logdepthbuf_vertex>\n\t#include <worldpos_vertex>\n\t#include <clipping_planes_vertex>\n\t#include <envmap_vertex>\n\t#include <fog_vertex>\n}";
+	var meshbasic_vert = "#include <common>\n#include <batching_pars_vertex>\n#include <uv_pars_vertex>\n#include <uv2_pars_vertex>\n#include <envmap_pars_vertex>\n#include <color_pars_vertex>\n#include <fog_pars_vertex>\n#include <morphtarget_pars_vertex>\n#include <skinning_pars_vertex>\n#include <logdepthbuf_pars_vertex>\n#include <clipping_planes_pars_vertex>\nvoid main() {\n\t#include <uv_vertex>\n\t#include <uv2_vertex>\n\t#include <color_vertex>\n\t#include <batching_vertex>\n\t#include <skinbase_vertex>\n\t#ifdef USE_ENVMAP\n\t#include <beginnormal_vertex>\n\t#include <morphnormal_vertex>\n\t#include <skinnormal_vertex>\n\t#include <defaultnormal_vertex>\n\t#endif\n\t#include <begin_vertex>\n\t#include <morphtarget_vertex>\n\t#include <skinning_vertex>\n\t#include <project_vertex>\n\t#include <logdepthbuf_vertex>\n\t#include <worldpos_vertex>\n\t#include <clipping_planes_vertex>\n\t#include <envmap_vertex>\n\t#include <fog_vertex>\n}";
 
 	var meshlambert_frag = "uniform vec3 diffuse;\nuniform vec3 emissive;\nuniform float opacity;\nvarying vec3 vLightFront;\nvarying vec3 vIndirectFront;\n#ifdef DOUBLE_SIDED\n\tvarying vec3 vLightBack;\n\tvarying vec3 vIndirectBack;\n#endif\n#include <common>\n#include <packing>\n#include <dithering_pars_fragment>\n#include <color_pars_fragment>\n#include <uv_pars_fragment>\n#include <uv2_pars_fragment>\n#include <map_pars_fragment>\n#include <alphamap_pars_fragment>\n#include <aomap_pars_fragment>\n#include <lightmap_pars_fragment>\n#include <emissivemap_pars_fragment>\n#include <envmap_common_pars_fragment>\n#include <envmap_pars_fragment>\n#include <bsdfs>\n#include <lights_pars_begin>\n#include <fog_pars_fragment>\n#include <shadowmap_pars_fragment>\n#include <shadowmask_pars_fragment>\n#include <specularmap_pars_fragment>\n#include <logdepthbuf_pars_fragment>\n#include <clipping_planes_pars_fragment>\nvoid main() {\n\t#include <clipping_planes_fragment>\n\tvec4 diffuseColor = vec4( diffuse, opacity );\n\tReflectedLight reflectedLight = ReflectedLight( vec3( 0.0 ), vec3( 0.0 ), vec3( 0.0 ), vec3( 0.0 ) );\n\tvec3 totalEmissiveRadiance = emissive;\n\t#include <logdepthbuf_fragment>\n\t#include <map_fragment>\n\t#include <color_fragment>\n\t#include <alphamap_fragment>\n\t#include <alphatest_fragment>\n\t#include <specularmap_fragment>\n\t#include <emissivemap_fragment>\n\treflectedLight.indirectDiffuse = getAmbientLightIrradiance( ambientLightColor );\n\t#ifdef DOUBLE_SIDED\n\t\treflectedLight.indirectDiffuse += ( gl_FrontFacing ) ? vIndirectFront : vIndirectBack;\n\t#else\n\t\treflectedLight.indirectDiffuse += vIndirectFront;\n\t#endif\n\t#include <lightmap_fragment>\n\treflectedLight.indirectDiffuse *= BRDF_Diffuse_Lambert( diffuseColor.rgb );\n\t#ifdef DOUBLE_SIDED\n\t\treflectedLight.directDiffuse = ( gl_FrontFacing ) ? vLightFront : vLightBack;\n\t#else\n\t\treflectedLight.directDiffuse = vLightFront;\n\t#endif\n\treflectedLight.directDiffuse *= BRDF_Diffuse_Lambert( diffuseColor.rgb ) * getShadowMask();\n\t#include <aomap_fragment>\n\tvec3 outgoingLight = reflectedLight.directDiffuse + reflectedLight.indirectDiffuse + totalEmissiveRadiance;\n\t#include <envmap_fragment>\n\tgl_FragColor = vec4( outgoingLight, diffuseColor.a );\n\t#include <tonemapping_fragment>\n\t#include <encodings_fragment>\n\t#include <fog_fragment>\n\t#include <premultiplied_alpha_fragment>\n\t#include <dithering_fragment>\n}";
 
-	var meshlambert_vert = "#define LAMBERT\nvarying vec3 vLightFront;\nvarying vec3 vIndirectFront;\n#ifdef DOUBLE_SIDED\n\tvarying vec3 vLightBack;\n\tvarying vec3 vIndirectBack;\n#endif\n#include <common>\n#include <uv_pars_vertex>\n#include <uv2_pars_vertex>\n#include <envmap_pars_vertex>\n#include <bsdfs>\n#include <lights_pars_begin>\n#include <color_pars_vertex>\n#include <fog_pars_vertex>\n#include <morphtarget_pars_vertex>\n#include <skinning_pars_vertex>\n#include <shadowmap_pars_vertex>\n#include <logdepthbuf_pars_vertex>\n#include <clipping_planes_pars_vertex>\nvoid main() {\n\t#include <uv_vertex>\n\t#include <uv2_vertex>\n\t#include <color_vertex>\n\t#include <beginnormal_vertex>\n\t#include <morphnormal_vertex>\n\t#include <skinbase_vertex>\n\t#include <skinnormal_vertex>\n\t#include <defaultnormal_vertex>\n\t#include <begin_vertex>\n\t#include <morphtarget_vertex>\n\t#include <skinning_vertex>\n\t#include <project_vertex>\n\t#include <logdepthbuf_vertex>\n\t#include <clipping_planes_vertex>\n\t#include <worldpos_vertex>\n\t#include <envmap_vertex>\n\t#include <lights_lambert_vertex>\n\t#include <shadowmap_vertex>\n\t#include <fog_vertex>\n}";
+	var meshlambert_vert = "#define LAMBERT\nvarying vec3 vLightFront;\nvarying vec3 vIndirectFront;\n#ifdef DOUBLE_SIDED\n\tvarying vec3 vLightBack;\n\tvarying vec3 vIndirectBack;\n#endif\n#include <common>\n#include <batching_pars_vertex>\n#include <uv_pars_vertex>\n#include <uv2_pars_vertex>\n#include <envmap_pars_vertex>\n#include <bsdfs>\n#include <lights_pars_begin>\n#include <color_pars_vertex>\n#include <fog_pars_vertex>\n#include <morphtarget_pars_vertex>\n#include <skinning_pars_vertex>\n#include <shadowmap_pars_vertex>\n#include <logdepthbuf_pars_vertex>\n#include <clipping_planes_pars_vertex>\nvoid main() {\n\t#include <uv_vertex>\n\t#include <uv2_vertex>\n\t#include <color_vertex>\n\t#include <batching_vertex>\n\t#include <beginnormal_vertex>\n\t#include <morphnormal_vertex>\n\t#include <skinbase_vertex>\n\t#include <skinnormal_vertex>\n\t#include <defaultnormal_vertex>\n\t#include <begin_vertex>\n\t#include <morphtarget_vertex>\n\t#include <skinning_vertex>\n\t#include <project_vertex>\n\t#include <logdepthbuf_vertex>\n\t#include <clipping_planes_vertex>\n\t#include <worldpos_vertex>\n\t#include <envmap_vertex>\n\t#include <lights_lambert_vertex>\n\t#include <shadowmap_vertex>\n\t#include <fog_vertex>\n}";
 
 	var meshmatcap_frag = "#define MATCAP\nuniform vec3 diffuse;\nuniform float opacity;\nuniform sampler2D matcap;\nvarying vec3 vViewPosition;\n#ifndef FLAT_SHADED\n\tvarying vec3 vNormal;\n#endif\n#include <common>\n#include <uv_pars_fragment>\n#include <map_pars_fragment>\n#include <alphamap_pars_fragment>\n#include <fog_pars_fragment>\n#include <bumpmap_pars_fragment>\n#include <normalmap_pars_fragment>\n#include <logdepthbuf_pars_fragment>\n#include <clipping_planes_pars_fragment>\nvoid main() {\n\t#include <clipping_planes_fragment>\n\tvec4 diffuseColor = vec4( diffuse, opacity );\n\t#include <logdepthbuf_fragment>\n\t#include <map_fragment>\n\t#include <alphamap_fragment>\n\t#include <alphatest_fragment>\n\t#include <normal_fragment_begin>\n\t#include <normal_fragment_maps>\n\tvec3 viewDir = normalize( vViewPosition );\n\tvec3 x = normalize( vec3( viewDir.z, 0.0, - viewDir.x ) );\n\tvec3 y = cross( viewDir, x );\n\tvec2 uv = vec2( dot( x, normal ), dot( y, normal ) ) * 0.495 + 0.5;\n\t#ifdef USE_MATCAP\n\t\tvec4 matcapColor = texture2D( matcap, uv );\n\t\tmatcapColor = matcapTexelToLinear( matcapColor );\n\t#else\n\t\tvec4 matcapColor = vec4( 1.0 );\n\t#endif\n\tvec3 outgoingLight = diffuseColor.rgb * matcapColor.rgb;\n\tgl_FragColor = vec4( outgoingLight, diffuseColor.a );\n\t#include <premultiplied_alpha_fragment>\n\t#include <tonemapping_fragment>\n\t#include <encodings_fragment>\n\t#include <fog_fragment>\n}";
 
-	var meshmatcap_vert = "#define MATCAP\nvarying vec3 vViewPosition;\n#ifndef FLAT_SHADED\n\tvarying vec3 vNormal;\n#endif\n#include <common>\n#include <uv_pars_vertex>\n#include <displacementmap_pars_vertex>\n#include <fog_pars_vertex>\n#include <morphtarget_pars_vertex>\n#include <skinning_pars_vertex>\n#include <logdepthbuf_pars_vertex>\n#include <clipping_planes_pars_vertex>\nvoid main() {\n\t#include <uv_vertex>\n\t#include <beginnormal_vertex>\n\t#include <morphnormal_vertex>\n\t#include <skinbase_vertex>\n\t#include <skinnormal_vertex>\n\t#include <defaultnormal_vertex>\n\t#ifndef FLAT_SHADED\n\t\tvNormal = normalize( transformedNormal );\n\t#endif\n\t#include <begin_vertex>\n\t#include <morphtarget_vertex>\n\t#include <skinning_vertex>\n\t#include <displacementmap_vertex>\n\t#include <project_vertex>\n\t#include <logdepthbuf_vertex>\n\t#include <clipping_planes_vertex>\n\t#include <fog_vertex>\n\tvViewPosition = - mvPosition.xyz;\n}";
+	var meshmatcap_vert = "#define MATCAP\nvarying vec3 vViewPosition;\n#ifndef FLAT_SHADED\n\tvarying vec3 vNormal;\n#endif\n#include <common>\n#include <batching_pars_vertex>\n#include <uv_pars_vertex>\n#include <displacementmap_pars_vertex>\n#include <fog_pars_vertex>\n#include <morphtarget_pars_vertex>\n#include <skinning_pars_vertex>\n#include <logdepthbuf_pars_vertex>\n#include <clipping_planes_pars_vertex>\nvoid main() {\n\t#include <uv_vertex>\n\t#include <batching_vertex>\n\t#include <beginnormal_vertex>\n\t#include <morphnormal_vertex>\n\t#include <skinbase_vertex>\n\t#include <skinnormal_vertex>\n\t#include <defaultnormal_vertex>\n\t#ifndef FLAT_SHADED\n\t\tvNormal = normalize( transformedNormal );\n\t#endif\n\t#include <begin_vertex>\n\t#include <morphtarget_vertex>\n\t#include <skinning_vertex>\n\t#include <displacementmap_vertex>\n\t#include <project_vertex>\n\t#include <logdepthbuf_vertex>\n\t#include <clipping_planes_vertex>\n\t#include <fog_vertex>\n\tvViewPosition = - mvPosition.xyz;\n}";
 
 	var meshphong_frag = "#define PHONG\nuniform vec3 diffuse;\nuniform vec3 emissive;\nuniform vec3 specular;\nuniform float shininess;\nuniform float opacity;\n#include <common>\n#include <packing>\n#include <dithering_pars_fragment>\n#include <color_pars_fragment>\n#include <uv_pars_fragment>\n#include <uv2_pars_fragment>\n#include <map_pars_fragment>\n#include <alphamap_pars_fragment>\n#include <aomap_pars_fragment>\n#include <lightmap_pars_fragment>\n#include <emissivemap_pars_fragment>\n#include <envmap_common_pars_fragment>\n#include <envmap_pars_fragment>\n#include <gradientmap_pars_fragment>\n#include <fog_pars_fragment>\n#include <bsdfs>\n#include <lights_pars_begin>\n#include <lights_phong_pars_fragment>\n#include <shadowmap_pars_fragment>\n#include <bumpmap_pars_fragment>\n#include <normalmap_pars_fragment>\n#include <specularmap_pars_fragment>\n#include <logdepthbuf_pars_fragment>\n#include <clipping_planes_pars_fragment>\nvoid main() {\n\t#include <clipping_planes_fragment>\n\tvec4 diffuseColor = vec4( diffuse, opacity );\n\tReflectedLight reflectedLight = ReflectedLight( vec3( 0.0 ), vec3( 0.0 ), vec3( 0.0 ), vec3( 0.0 ) );\n\tvec3 totalEmissiveRadiance = emissive;\n\t#include <logdepthbuf_fragment>\n\t#include <map_fragment>\n\t#include <color_fragment>\n\t#include <alphamap_fragment>\n\t#include <alphatest_fragment>\n\t#include <specularmap_fragment>\n\t#include <normal_fragment_begin>\n\t#include <normal_fragment_maps>\n\t#include <emissivemap_fragment>\n\t#include <lights_phong_fragment>\n\t#include <lights_fragment_begin>\n\t#include <lights_fragment_maps>\n\t#include <lights_fragment_end>\n\t#include <aomap_fragment>\n\tvec3 outgoingLight = reflectedLight.directDiffuse + reflectedLight.indirectDiffuse + reflectedLight.directSpecular + reflectedLight.indirectSpecular + totalEmissiveRadiance;\n\t#include <envmap_fragment>\n\tgl_FragColor = vec4( outgoingLight, diffuseColor.a );\n\t#include <tonemapping_fragment>\n\t#include <encodings_fragment>\n\t#include <fog_fragment>\n\t#include <premultiplied_alpha_fragment>\n\t#include <dithering_fragment>\n}";
 
-	var meshphong_vert = "#define PHONG\nvarying vec3 vViewPosition;\n#ifndef FLAT_SHADED\n\tvarying vec3 vNormal;\n#endif\n#include <common>\n#include <uv_pars_vertex>\n#include <uv2_pars_vertex>\n#include <displacementmap_pars_vertex>\n#include <envmap_pars_vertex>\n#include <color_pars_vertex>\n#include <fog_pars_vertex>\n#include <morphtarget_pars_vertex>\n#include <skinning_pars_vertex>\n#include <shadowmap_pars_vertex>\n#include <logdepthbuf_pars_vertex>\n#include <clipping_planes_pars_vertex>\nvoid main() {\n\t#include <uv_vertex>\n\t#include <uv2_vertex>\n\t#include <color_vertex>\n\t#include <beginnormal_vertex>\n\t#include <morphnormal_vertex>\n\t#include <skinbase_vertex>\n\t#include <skinnormal_vertex>\n\t#include <defaultnormal_vertex>\n#ifndef FLAT_SHADED\n\tvNormal = normalize( transformedNormal );\n#endif\n\t#include <begin_vertex>\n\t#include <morphtarget_vertex>\n\t#include <skinning_vertex>\n\t#include <displacementmap_vertex>\n\t#include <project_vertex>\n\t#include <logdepthbuf_vertex>\n\t#include <clipping_planes_vertex>\n\tvViewPosition = - mvPosition.xyz;\n\t#include <worldpos_vertex>\n\t#include <envmap_vertex>\n\t#include <shadowmap_vertex>\n\t#include <fog_vertex>\n}";
+	var meshphong_vert = "#define PHONG\nvarying vec3 vViewPosition;\n#ifndef FLAT_SHADED\n\tvarying vec3 vNormal;\n#endif\n#include <common>\n#include <batching_pars_vertex>\n#include <uv_pars_vertex>\n#include <uv2_pars_vertex>\n#include <displacementmap_pars_vertex>\n#include <envmap_pars_vertex>\n#include <color_pars_vertex>\n#include <fog_pars_vertex>\n#include <morphtarget_pars_vertex>\n#include <skinning_pars_vertex>\n#include <shadowmap_pars_vertex>\n#include <logdepthbuf_pars_vertex>\n#include <clipping_planes_pars_vertex>\nvoid main() {\n\t#include <uv_vertex>\n\t#include <uv2_vertex>\n\t#include <color_vertex>\n\t#include <batching_vertex>\n\t#include <beginnormal_vertex>\n\t#include <morphnormal_vertex>\n\t#include <skinbase_vertex>\n\t#include <skinnormal_vertex>\n\t#include <defaultnormal_vertex>\n#ifndef FLAT_SHADED\n\tvNormal = normalize( transformedNormal );\n#endif\n\t#include <begin_vertex>\n\t#include <morphtarget_vertex>\n\t#include <skinning_vertex>\n\t#include <displacementmap_vertex>\n\t#include <project_vertex>\n\t#include <logdepthbuf_vertex>\n\t#include <clipping_planes_vertex>\n\tvViewPosition = - mvPosition.xyz;\n\t#include <worldpos_vertex>\n\t#include <envmap_vertex>\n\t#include <shadowmap_vertex>\n\t#include <fog_vertex>\n}";
 
 	var meshphysical_frag = "#define STANDARD\n#ifdef PHYSICAL\n\t#define REFLECTIVITY\n\t#define CLEARCOAT\n\t#define TRANSPARENCY\n#endif\nuniform vec3 diffuse;\nuniform vec3 emissive;\nuniform float roughness;\nuniform float metalness;\nuniform float opacity;\n#ifdef TRANSPARENCY\n\tuniform float transparency;\n#endif\n#ifdef REFLECTIVITY\n\tuniform float reflectivity;\n#endif\n#ifdef CLEARCOAT\n\tuniform float clearcoat;\n\tuniform float clearcoatRoughness;\n#endif\n#ifdef USE_SHEEN\n\tuniform vec3 sheen;\n#endif\nvarying vec3 vViewPosition;\n#ifndef FLAT_SHADED\n\tvarying vec3 vNormal;\n\t#ifdef USE_TANGENT\n\t\tvarying vec3 vTangent;\n\t\tvarying vec3 vBitangent;\n\t#endif\n#endif\n#include <common>\n#include <packing>\n#include <dithering_pars_fragment>\n#include <color_pars_fragment>\n#include <uv_pars_fragment>\n#include <uv2_pars_fragment>\n#include <map_pars_fragment>\n#include <alphamap_pars_fragment>\n#include <aomap_pars_fragment>\n#include <lightmap_pars_fragment>\n#include <emissivemap_pars_fragment>\n#include <bsdfs>\n#include <cube_uv_reflection_fragment>\n#include <envmap_common_pars_fragment>\n#include <envmap_physical_pars_fragment>\n#include <fog_pars_fragment>\n#include <lights_pars_begin>\n#include <lights_physical_pars_fragment>\n#include <shadowmap_pars_fragment>\n#include <bumpmap_pars_fragment>\n#include <normalmap_pars_fragment>\n#include <clearcoat_normalmap_pars_fragment>\n#include <roughnessmap_pars_fragment>\n#include <metalnessmap_pars_fragment>\n#include <logdepthbuf_pars_fragment>\n#include <clipping_planes_pars_fragment>\nvoid main() {\n\t#include <clipping_planes_fragment>\n\tvec4 diffuseColor = vec4( diffuse, opacity );\n\tReflectedLight reflectedLight = ReflectedLight( vec3( 0.0 ), vec3( 0.0 ), vec3( 0.0 ), vec3( 0.0 ) );\n\tvec3 totalEmissiveRadiance = emissive;\n\t#include <logdepthbuf_fragment>\n\t#include <map_fragment>\n\t#include <color_fragment>\n\t#include <alphamap_fragment>\n\t#include <alphatest_fragment>\n\t#include <roughnessmap_fragment>\n\t#include <metalnessmap_fragment>\n\t#include <normal_fragment_begin>\n\t#include <normal_fragment_maps>\n\t#include <clearcoat_normal_fragment_begin>\n\t#include <clearcoat_normal_fragment_maps>\n\t#include <emissivemap_fragment>\n\t#include <lights_physical_fragment>\n\t#include <lights_fragment_begin>\n\t#include <lights_fragment_maps>\n\t#include <lights_fragment_end>\n\t#include <aomap_fragment>\n\tvec3 outgoingLight = reflectedLight.directDiffuse + reflectedLight.indirectDiffuse + reflectedLight.directSpecular + reflectedLight.indirectSpecular + totalEmissiveRadiance;\n\t#ifdef TRANSPARENCY\n\t\tdiffuseColor.a *= saturate( 1. - transparency + linearToRelativeLuminance( reflectedLight.directSpecular + reflectedLight.indirectSpecular ) );\n\t#endif\n\tgl_FragColor = vec4( outgoingLight, diffuseColor.a );\n\t#include <tonemapping_fragment>\n\t#include <encodings_fragment>\n\t#include <fog_fragment>\n\t#include <premultiplied_alpha_fragment>\n\t#include <dithering_fragment>\n}";
 
-	var meshphysical_vert = "#define STANDARD\nvarying vec3 vViewPosition;\n#ifndef FLAT_SHADED\n\tvarying vec3 vNormal;\n\t#ifdef USE_TANGENT\n\t\tvarying vec3 vTangent;\n\t\tvarying vec3 vBitangent;\n\t#endif\n#endif\n#include <common>\n#include <uv_pars_vertex>\n#include <uv2_pars_vertex>\n#include <displacementmap_pars_vertex>\n#include <color_pars_vertex>\n#include <fog_pars_vertex>\n#include <morphtarget_pars_vertex>\n#include <skinning_pars_vertex>\n#include <shadowmap_pars_vertex>\n#include <logdepthbuf_pars_vertex>\n#include <clipping_planes_pars_vertex>\nvoid main() {\n\t#include <uv_vertex>\n\t#include <uv2_vertex>\n\t#include <color_vertex>\n\t#include <beginnormal_vertex>\n\t#include <morphnormal_vertex>\n\t#include <skinbase_vertex>\n\t#include <skinnormal_vertex>\n\t#include <defaultnormal_vertex>\n#ifndef FLAT_SHADED\n\tvNormal = normalize( transformedNormal );\n\t#ifdef USE_TANGENT\n\t\tvTangent = normalize( transformedTangent );\n\t\tvBitangent = normalize( cross( vNormal, vTangent ) * tangent.w );\n\t#endif\n#endif\n\t#include <begin_vertex>\n\t#include <morphtarget_vertex>\n\t#include <skinning_vertex>\n\t#include <displacementmap_vertex>\n\t#include <project_vertex>\n\t#include <logdepthbuf_vertex>\n\t#include <clipping_planes_vertex>\n\tvViewPosition = - mvPosition.xyz;\n\t#include <worldpos_vertex>\n\t#include <shadowmap_vertex>\n\t#include <fog_vertex>\n}";
+	var meshphysical_vert = "#define STANDARD\nvarying vec3 vViewPosition;\n#ifndef FLAT_SHADED\n\tvarying vec3 vNormal;\n\t#ifdef USE_TANGENT\n\t\tvarying vec3 vTangent;\n\t\tvarying vec3 vBitangent;\n\t#endif\n#endif\n#include <common>\n#include <batching_pars_vertex>\n#include <uv_pars_vertex>\n#include <uv2_pars_vertex>\n#include <displacementmap_pars_vertex>\n#include <color_pars_vertex>\n#include <fog_pars_vertex>\n#include <morphtarget_pars_vertex>\n#include <skinning_pars_vertex>\n#include <shadowmap_pars_vertex>\n#include <logdepthbuf_pars_vertex>\n#include <clipping_planes_pars_vertex>\nvoid main() {\n\t#include <uv_vertex>\n\t#include <uv2_vertex>\n\t#include <color_vertex>\n\t#include <batching_vertex>\n\t#include <beginnormal_vertex>\n\t#include <morphnormal_vertex>\n\t#include <skinbase_vertex>\n\t#include <skinnormal_vertex>\n\t#include <defaultnormal_vertex>\n#ifndef FLAT_SHADED\n\tvNormal = normalize( transformedNormal );\n\t#ifdef USE_TANGENT\n\t\tvTangent = normalize( transformedTangent );\n\t\tvBitangent = normalize( cross( vNormal, vTangent ) * tangent.w );\n\t#endif\n#endif\n\t#include <begin_vertex>\n\t#include <morphtarget_vertex>\n\t#include <skinning_vertex>\n\t#include <displacementmap_vertex>\n\t#include <project_vertex>\n\t#include <logdepthbuf_vertex>\n\t#include <clipping_planes_vertex>\n\tvViewPosition = - mvPosition.xyz;\n\t#include <worldpos_vertex>\n\t#include <shadowmap_vertex>\n\t#include <fog_vertex>\n}";
 
 	var normal_frag = "#define NORMAL\nuniform float opacity;\n#if defined( FLAT_SHADED ) || defined( USE_BUMPMAP ) || defined( TANGENTSPACE_NORMALMAP )\n\tvarying vec3 vViewPosition;\n#endif\n#ifndef FLAT_SHADED\n\tvarying vec3 vNormal;\n\t#ifdef USE_TANGENT\n\t\tvarying vec3 vTangent;\n\t\tvarying vec3 vBitangent;\n\t#endif\n#endif\n#include <packing>\n#include <uv_pars_fragment>\n#include <bumpmap_pars_fragment>\n#include <normalmap_pars_fragment>\n#include <logdepthbuf_pars_fragment>\n#include <clipping_planes_pars_fragment>\nvoid main() {\n\t#include <clipping_planes_fragment>\n\t#include <logdepthbuf_fragment>\n\t#include <normal_fragment_begin>\n\t#include <normal_fragment_maps>\n\tgl_FragColor = vec4( packNormalToRGB( normal ), opacity );\n}";
 
-	var normal_vert = "#define NORMAL\n#if defined( FLAT_SHADED ) || defined( USE_BUMPMAP ) || defined( TANGENTSPACE_NORMALMAP )\n\tvarying vec3 vViewPosition;\n#endif\n#ifndef FLAT_SHADED\n\tvarying vec3 vNormal;\n\t#ifdef USE_TANGENT\n\t\tvarying vec3 vTangent;\n\t\tvarying vec3 vBitangent;\n\t#endif\n#endif\n#include <common>\n#include <uv_pars_vertex>\n#include <displacementmap_pars_vertex>\n#include <morphtarget_pars_vertex>\n#include <skinning_pars_vertex>\n#include <logdepthbuf_pars_vertex>\n#include <clipping_planes_pars_vertex>\nvoid main() {\n\t#include <uv_vertex>\n\t#include <beginnormal_vertex>\n\t#include <morphnormal_vertex>\n\t#include <skinbase_vertex>\n\t#include <skinnormal_vertex>\n\t#include <defaultnormal_vertex>\n#ifndef FLAT_SHADED\n\tvNormal = normalize( transformedNormal );\n\t#ifdef USE_TANGENT\n\t\tvTangent = normalize( transformedTangent );\n\t\tvBitangent = normalize( cross( vNormal, vTangent ) * tangent.w );\n\t#endif\n#endif\n\t#include <begin_vertex>\n\t#include <morphtarget_vertex>\n\t#include <skinning_vertex>\n\t#include <displacementmap_vertex>\n\t#include <project_vertex>\n\t#include <logdepthbuf_vertex>\n\t#include <clipping_planes_vertex>\n#if defined( FLAT_SHADED ) || defined( USE_BUMPMAP ) || defined( TANGENTSPACE_NORMALMAP )\n\tvViewPosition = - mvPosition.xyz;\n#endif\n}";
+	var normal_vert = "#define NORMAL\n#if defined( FLAT_SHADED ) || defined( USE_BUMPMAP ) || defined( TANGENTSPACE_NORMALMAP )\n\tvarying vec3 vViewPosition;\n#endif\n#ifndef FLAT_SHADED\n\tvarying vec3 vNormal;\n\t#ifdef USE_TANGENT\n\t\tvarying vec3 vTangent;\n\t\tvarying vec3 vBitangent;\n\t#endif\n#endif\n#include <common>\n#include <batching_pars_vertex>\n#include <uv_pars_vertex>\n#include <displacementmap_pars_vertex>\n#include <morphtarget_pars_vertex>\n#include <skinning_pars_vertex>\n#include <logdepthbuf_pars_vertex>\n#include <clipping_planes_pars_vertex>\nvoid main() {\n\t#include <uv_vertex>\n\t#include <batching_vertex>\n\t#include <beginnormal_vertex>\n\t#include <morphnormal_vertex>\n\t#include <skinbase_vertex>\n\t#include <skinnormal_vertex>\n\t#include <defaultnormal_vertex>\n#ifndef FLAT_SHADED\n\tvNormal = normalize( transformedNormal );\n\t#ifdef USE_TANGENT\n\t\tvTangent = normalize( transformedTangent );\n\t\tvBitangent = normalize( cross( vNormal, vTangent ) * tangent.w );\n\t#endif\n#endif\n\t#include <begin_vertex>\n\t#include <morphtarget_vertex>\n\t#include <skinning_vertex>\n\t#include <displacementmap_vertex>\n\t#include <project_vertex>\n\t#include <logdepthbuf_vertex>\n\t#include <clipping_planes_vertex>\n#if defined( FLAT_SHADED ) || defined( USE_BUMPMAP ) || defined( TANGENTSPACE_NORMALMAP )\n\tvViewPosition = - mvPosition.xyz;\n#endif\n}";
 
 	var points_frag = "uniform vec3 diffuse;\nuniform float opacity;\n#include <common>\n#include <color_pars_fragment>\n#include <map_particle_pars_fragment>\n#include <fog_pars_fragment>\n#include <logdepthbuf_pars_fragment>\n#include <clipping_planes_pars_fragment>\nvoid main() {\n\t#include <clipping_planes_fragment>\n\tvec3 outgoingLight = vec3( 0.0 );\n\tvec4 diffuseColor = vec4( diffuse, opacity );\n\t#include <logdepthbuf_fragment>\n\t#include <map_particle_fragment>\n\t#include <color_fragment>\n\t#include <alphatest_fragment>\n\toutgoingLight = diffuseColor.rgb;\n\tgl_FragColor = vec4( outgoingLight, diffuseColor.a );\n\t#include <premultiplied_alpha_fragment>\n\t#include <tonemapping_fragment>\n\t#include <encodings_fragment>\n\t#include <fog_fragment>\n}";
 
@@ -14268,7 +14824,7 @@
 
 	var shadow_frag = "uniform vec3 color;\nuniform float opacity;\n#include <common>\n#include <packing>\n#include <fog_pars_fragment>\n#include <bsdfs>\n#include <lights_pars_begin>\n#include <shadowmap_pars_fragment>\n#include <shadowmask_pars_fragment>\nvoid main() {\n\tgl_FragColor = vec4( color, opacity * ( 1.0 - getShadowMask() ) );\n\t#include <fog_fragment>\n}";
 
-	var shadow_vert = "#include <fog_pars_vertex>\n#include <shadowmap_pars_vertex>\nvoid main() {\n\t#include <begin_vertex>\n\t#include <project_vertex>\n\t#include <worldpos_vertex>\n\t#include <shadowmap_vertex>\n\t#include <fog_vertex>\n}";
+	var shadow_vert = "#include <batching_pars_vertex>\n#include <fog_pars_vertex>\n#include <shadowmap_pars_vertex>\nvoid main() {\n\t#include <batching_vertex>\n\t#include <begin_vertex>\n\t#include <project_vertex>\n\t#include <worldpos_vertex>\n\t#include <shadowmap_vertex>\n\t#include <fog_vertex>\n}";
 
 	var sprite_frag = "uniform vec3 diffuse;\nuniform float opacity;\n#include <common>\n#include <uv_pars_fragment>\n#include <map_pars_fragment>\n#include <alphamap_pars_fragment>\n#include <fog_pars_fragment>\n#include <logdepthbuf_pars_fragment>\n#include <clipping_planes_pars_fragment>\nvoid main() {\n\t#include <clipping_planes_fragment>\n\tvec3 outgoingLight = vec3( 0.0 );\n\tvec4 diffuseColor = vec4( diffuse, opacity );\n\t#include <logdepthbuf_fragment>\n\t#include <map_fragment>\n\t#include <alphamap_fragment>\n\t#include <alphatest_fragment>\n\toutgoingLight = diffuseColor.rgb;\n\tgl_FragColor = vec4( outgoingLight, diffuseColor.a );\n\t#include <tonemapping_fragment>\n\t#include <encodings_fragment>\n\t#include <fog_fragment>\n}";
 
@@ -14280,6 +14836,8 @@
 		alphatest_fragment: alphatest_fragment,
 		aomap_fragment: aomap_fragment,
 		aomap_pars_fragment: aomap_pars_fragment,
+		batching_pars_vertex: batching_pars_vertex,
+		batching_vertex: batching_vertex,
 		begin_vertex: begin_vertex,
 		beginnormal_vertex: beginnormal_vertex,
 		bsdfs: bsdfs,
@@ -15467,11 +16025,39 @@
 
 		}
 
+		// backport from r185(阶段三 4.2#2): BatchedMesh 单次多段提交
+		function renderMultiDraw( starts, counts, drawCount ) {
+
+			if ( drawCount === 0 ) { return; }
+
+			var extension = extensions.get( 'WEBGL_multi_draw' );
+
+			if ( extension === null ) {
+
+				console.error( 'THREE.WebGLBufferRenderer: hardware does not support extension WEBGL_multi_draw.' );
+				return;
+
+			}
+
+			extension.multiDrawArraysWEBGL( mode, starts, 0, counts, 0, drawCount );
+
+			var elementCount = 0;
+			for ( var i = 0; i < drawCount; i ++ ) {
+
+				elementCount += counts[ i ];
+
+			}
+
+			info.update( elementCount, mode );
+
+		}
+
 		//
 
 		this.setMode = setMode;
 		this.render = render;
 		this.renderInstances = renderInstances;
+		this.renderMultiDraw = renderMultiDraw;
 
 	}
 
@@ -16088,12 +16674,41 @@
 
 		}
 
+		// backport from r185(阶段三 4.2#2): BatchedMesh 单次多段提交
+		// (starts 为字节偏移; 无 WEBGL_multi_draw 扩展时渲染器走循环 fallback, 不会调到这里)
+		function renderMultiDraw( starts, counts, drawCount ) {
+
+			if ( drawCount === 0 ) { return; }
+
+			var extension = extensions.get( 'WEBGL_multi_draw' );
+
+			if ( extension === null ) {
+
+				console.error( 'THREE.WebGLIndexedBufferRenderer: hardware does not support extension WEBGL_multi_draw.' );
+				return;
+
+			}
+
+			extension.multiDrawElementsWEBGL( mode, counts, 0, type, starts, 0, drawCount );
+
+			var elementCount = 0;
+			for ( var i = 0; i < drawCount; i ++ ) {
+
+				elementCount += counts[ i ];
+
+			}
+
+			info.update( elementCount, mode );
+
+		}
+
 		//
 
 		this.setMode = setMode;
 		this.setIndex = setIndex;
 		this.render = render;
 		this.renderInstances = renderInstances;
+		this.renderMultiDraw = renderMultiDraw;
 
 	}
 
@@ -16321,6 +16936,12 @@
 			if ( object.isInstancedMesh ) {
 
 				attributes.update( object.instanceMatrix, 34962 );
+
+				if ( object.instanceColor !== null ) {
+
+					attributes.update( object.instanceColor, 34962 );
+
+				}
 
 			}
 
@@ -17729,13 +18350,20 @@
 
 			prefixVertex = [
 
+				// backport from r185(阶段三 4.2#2): gl_DrawID 需在着色器内启用扩展
+				// (#extension 必须先于任何非预处理语句)
+				parameters.extensionMultiDraw ? '#extension GL_ANGLE_multi_draw : require' : '',
+
 				generatePrecision( parameters ),
 
 				'#define SHADER_NAME ' + shader.name,
 
 				customDefines,
 
+				parameters.batching ? '#define USE_BATCHING' : '',
+				parameters.batchingColor ? '#define USE_BATCHING_COLOR' : '',
 				parameters.instancing ? '#define USE_INSTANCING' : '',
+				parameters.instancingColor ? '#define USE_INSTANCING_COLOR' : '',
 				parameters.supportsVertexTextures ? '#define VERTEX_TEXTURES' : '',
 
 				'#define GAMMA_FACTOR ' + gammaFactorDefine,
@@ -17796,6 +18424,12 @@
 				'#ifdef USE_INSTANCING',
 
 				' attribute mat4 instanceMatrix;',
+
+				'#endif',
+
+				'#ifdef USE_INSTANCING_COLOR',
+
+				' attribute vec3 instanceColor;',
 
 				'#endif',
 
@@ -17890,7 +18524,8 @@
 				parameters.sheen ? '#define USE_SHEEN' : '',
 
 				parameters.vertexTangents ? '#define USE_TANGENT' : '',
-				parameters.vertexColors ? '#define USE_COLOR' : '',
+				// instancingColor/batchingColor 时片元侧也要声明 vColor varying
+				( parameters.vertexColors || parameters.instancingColor || parameters.batchingColor ) ? '#define USE_COLOR' : '',
 				parameters.vertexUvs ? '#define USE_UV' : '',
 				parameters.uvsVertexOnly ? '#define UVS_VERTEX_ONLY' : '',
 
@@ -18195,12 +18830,145 @@
 	}
 
 	/**
+	 * backport from r185(阶段三 4.2#3): shader 源码级缓存。
+	 * 自定义 ShaderMaterial 的 program cacheKey 由"完整 GLSL 源文本"退化为
+	 * 递增 id, 大量自定义材质(后处理 Pass 等)时 key 构建与比对成本从 O(源码长度)
+	 * 降为 O(1); 与 GL 版本无关。
+	 */
+
+	var _id = 0;
+
+	function WebGLShaderStage( code ) {
+
+		this.id = _id ++;
+
+		this.code = code;
+		this.usedTimes = 0;
+
+	}
+
+	function WebGLShaderCache() {
+
+		this.shaderCache = new Map();
+		this.materialCache = new Map();
+
+	}
+
+	Object.assign( WebGLShaderCache.prototype, {
+
+		update: function ( material ) {
+
+			var vertexShader = material.vertexShader;
+			var fragmentShader = material.fragmentShader;
+
+			var vertexShaderStage = this._getShaderStage( vertexShader );
+			var fragmentShaderStage = this._getShaderStage( fragmentShader );
+
+			var materialShaders = this._getShaderCacheForMaterial( material );
+
+			if ( materialShaders.has( vertexShaderStage ) === false ) {
+
+				materialShaders.add( vertexShaderStage );
+				vertexShaderStage.usedTimes ++;
+
+			}
+
+			if ( materialShaders.has( fragmentShaderStage ) === false ) {
+
+				materialShaders.add( fragmentShaderStage );
+				fragmentShaderStage.usedTimes ++;
+
+			}
+
+			return this;
+
+		},
+
+		remove: function ( material ) {
+
+			var materialShaders = this.materialCache.get( material );
+
+			if ( materialShaders !== undefined ) {
+
+				materialShaders.forEach( function ( shaderStage ) {
+
+					shaderStage.usedTimes --;
+
+					if ( shaderStage.usedTimes === 0 ) { this.shaderCache.delete( shaderStage.code ); }
+
+				}, this );
+
+				this.materialCache.delete( material );
+
+			}
+
+			return this;
+
+		},
+
+		getVertexShaderID: function ( material ) {
+
+			return this._getShaderStage( material.vertexShader ).id;
+
+		},
+
+		getFragmentShaderID: function ( material ) {
+
+			return this._getShaderStage( material.fragmentShader ).id;
+
+		},
+
+		dispose: function () {
+
+			this.shaderCache.clear();
+			this.materialCache.clear();
+
+		},
+
+		_getShaderCacheForMaterial: function ( material ) {
+
+			var cache = this.materialCache;
+			var set = cache.get( material );
+
+			if ( set === undefined ) {
+
+				set = new Set();
+				cache.set( material, set );
+
+			}
+
+			return set;
+
+		},
+
+		_getShaderStage: function ( code ) {
+
+			var cache = this.shaderCache;
+			var stage = cache.get( code );
+
+			if ( stage === undefined ) {
+
+				stage = new WebGLShaderStage( code );
+				cache.set( code, stage );
+
+			}
+
+			return stage;
+
+		}
+
+	} );
+
+	/**
 	 * @author mrdoob / http://mrdoob.com/
 	 */
 
 	function WebGLPrograms( renderer, extensions, capabilities ) {
 
 		var programs = [];
+
+		// backport from r185(阶段三 4.2#3): 自定义 shader 源码级缓存
+		var customShaders = new WebGLShaderCache();
 
 		var isWebGL2 = capabilities.isWebGL2;
 		var logarithmicDepthBuffer = capabilities.logarithmicDepthBuffer;
@@ -18228,7 +18996,8 @@
 		};
 
 		var parameterNames = [
-			"precision", "isWebGL2", "supportsVertexTextures", "outputEncoding", "instancing", "numMultiviewViews",
+			"precision", "isWebGL2", "supportsVertexTextures", "outputEncoding", "instancing", "instancingColor",
+			"batching", "batchingColor", "extensionMultiDraw", "numMultiviewViews",
 			"map", "mapEncoding", "matcap", "matcapEncoding", "envMap", "envMapMode", "envMapEncoding", "envMapCubeUV",
 			"lightMap", "aoMap", "emissiveMap", "emissiveMapEncoding", "bumpMap", "normalMap", "objectSpaceNormalMap", "tangentSpaceNormalMap", "clearcoatNormalMap", "displacementMap", "specularMap",
 			"roughnessMap", "metalnessMap", "gradientMap",
@@ -18343,6 +19112,12 @@
 				precision: precision,
 
 				instancing: object.isInstancedMesh === true,
+				instancingColor: object.isInstancedMesh === true && object.instanceColor !== null,
+
+				// backport from r185(阶段三 4.2#2): BatchedMesh GL1 版
+				batching: object.isBatchedMesh === true,
+				batchingColor: object.isBatchedMesh === true && object._colorsTexture !== null,
+				extensionMultiDraw: object.isBatchedMesh === true && extensions.get( 'WEBGL_multi_draw' ) !== null,
 
 				supportsVertexTextures: vertexTextures,
 				numMultiviewViews: numMultiviewViews,
@@ -18444,8 +19219,12 @@
 
 			} else {
 
-				array.push( material.fragmentShader );
-				array.push( material.vertexShader );
+				// backport from r185(阶段三 4.2#3): 自定义 shader 用源码级缓存 id
+				// 替代完整 GLSL 文本, key 构建成本 O(源码长度) -> O(1)
+				customShaders.update( material );
+
+				array.push( customShaders.getVertexShaderID( material ) );
+				array.push( customShaders.getFragmentShaderID( material ) );
 
 			}
 
@@ -18504,6 +19283,18 @@
 			}
 
 			return program;
+
+		};
+
+		this.releaseShaderCache = function ( material ) {
+
+			customShaders.remove( material );
+
+		};
+
+		this.dispose = function () {
+
+			customShaders.dispose();
 
 		};
 
@@ -24032,6 +24823,9 @@
 
 			releaseMaterialProgramReference( material );
 
+			// backport from r185(阶段三 4.2#3): 释放自定义 shader 源码级缓存
+			programCache.releaseShaderCache( material );
+
 			properties.remove( material );
 
 		}
@@ -24278,7 +25072,33 @@
 
 			}
 
-			if ( object.isInstancedMesh ) {
+			if ( object.isBatchedMesh ) {
+
+				// backport from r185(阶段三 4.2#2): 有 WEBGL_multi_draw 时一次提交全部
+				// 可见段; 无扩展时循环 draw + 逐段更新 _gl_DrawID(r185 官方 fallback),
+				// 仍省去逐对象 program/material/attribute 切换
+				if ( extensions.get( 'WEBGL_multi_draw' ) !== null ) {
+
+					renderer.renderMultiDraw( object._multiDrawStarts, object._multiDrawCounts, object._multiDrawCount );
+
+				} else {
+
+					var starts = object._multiDrawStarts;
+					var counts = object._multiDrawCounts;
+					var multiDrawCount = object._multiDrawCount;
+					var bytesPerElement = ( index !== null ) ? attribute.bytesPerElement : 1;
+					var drawUniforms = program.getUniforms();
+
+					for ( var d = 0; d < multiDrawCount; d ++ ) {
+
+						drawUniforms.setValue( _gl, '_gl_DrawID', d );
+						renderer.render( starts[ d ] / bytesPerElement, counts[ d ] );
+
+					}
+
+				}
+
+			} else if ( object.isInstancedMesh ) {
 
 				renderer.renderInstances( geometry, drawStart, drawCount, object.count );
 
@@ -24403,6 +25223,22 @@
 						_gl.vertexAttribPointer( programAttribute + 1, 4, type, false, 64, 16 );
 						_gl.vertexAttribPointer( programAttribute + 2, 4, type, false, 64, 32 );
 						_gl.vertexAttribPointer( programAttribute + 3, 4, type, false, 64, 48 );
+
+					} else if ( name === 'instanceColor' && object.instanceColor ) {
+
+						// backport from r185(阶段三 4.2#1): 逐实例颜色 attribute
+						var attribute = attributes.get( object.instanceColor );
+
+						if ( attribute === undefined ) { continue; }
+
+						var buffer = attribute.buffer;
+						var type = attribute.type;
+
+						state.enableAttributeAndDivisor( programAttribute, 1 );
+
+						_gl.bindBuffer( 34962, buffer );
+
+						_gl.vertexAttribPointer( programAttribute, 3, type, false, 12, 0 );
 
 					} else if ( materialDefaultAttributeValues !== undefined ) {
 
@@ -24914,6 +25750,13 @@
 
 			var programCacheKey = programCache.getProgramCacheKey( material, parameters );
 
+			// 记录对象相关参数(instancing/batching), setProgram 检测到与当前
+			// object 不匹配时触发重编译(材质不应在合批/非合批对象间共享)
+			materialProperties.instancing = parameters.instancing;
+			materialProperties.instancingColor = parameters.instancingColor;
+			materialProperties.batching = parameters.batching;
+			materialProperties.batchingColor = parameters.batchingColor;
+
 			var program = materialProperties.program;
 			var programChange = true;
 
@@ -25104,6 +25947,23 @@
 
 					material.needsUpdate = true;
 
+				} else if ( materialProperties.instancing !== ( object.isInstancedMesh === true ) ) {
+
+					// backport from r185: 对象相关编译参数变化时触发重编译
+					material.needsUpdate = true;
+
+				} else if ( materialProperties.instancingColor !== ( object.isInstancedMesh === true && object.instanceColor !== null ) ) {
+
+					material.needsUpdate = true;
+
+				} else if ( materialProperties.batching !== ( object.isBatchedMesh === true ) ) {
+
+					material.needsUpdate = true;
+
+				} else if ( materialProperties.batchingColor !== ( object.isBatchedMesh === true && object._colorsTexture !== null ) ) {
+
+					material.needsUpdate = true;
+
 				} else if ( materialProperties.numClippingPlanes !== undefined &&
 					( materialProperties.numClippingPlanes !== _clipping.numPlanes ||
 					materialProperties.numIntersection !== _clipping.numIntersection ) ) {
@@ -25277,6 +26137,25 @@
 						p_uniforms.setOptional( _gl, skeleton, 'boneMatrices' );
 
 					}
+
+				}
+
+			}
+
+			// backport from r185(阶段三 4.2#2): BatchedMesh 纹理与尺寸 uniform
+			// (GL1 改造: texelFetch 不可用, 采样函数经 size uniform 手动换算 UV)
+			if ( object.isBatchedMesh ) {
+
+				p_uniforms.setValue( _gl, 'batchingTexture', object._matricesTexture, textures );
+				p_uniforms.setValue( _gl, 'batchingTextureSize', object._matricesTexture.image.width );
+
+				p_uniforms.setValue( _gl, 'batchingIdTexture', object._indirectTexture, textures );
+				p_uniforms.setValue( _gl, 'batchingIdTextureSize', object._indirectTexture.image.width );
+
+				if ( object._colorsTexture !== null ) {
+
+					p_uniforms.setValue( _gl, 'batchingColorTexture', object._colorsTexture, textures );
+					p_uniforms.setValue( _gl, 'batchingColorTextureSize', object._colorsTexture.image.width );
 
 				}
 
@@ -26745,8 +27624,8 @@
 	 * @author mrdoob / http://mrdoob.com/
 	 */
 
-	var _v1$4 = new Vector3();
-	var _v2$2 = new Vector3();
+	var _v1$5 = new Vector3();
+	var _v2$3 = new Vector3();
 
 	function LOD() {
 
@@ -26835,9 +27714,9 @@
 
 		raycast: function ( raycaster, intersects ) {
 
-			_v1$4.setFromMatrixPosition( this.matrixWorld );
+			_v1$5.setFromMatrixPosition( this.matrixWorld );
 
-			var distance = raycaster.ray.origin.distanceTo( _v1$4 );
+			var distance = raycaster.ray.origin.distanceTo( _v1$5 );
 
 			this.getObjectForDistance( distance ).raycast( raycaster, intersects );
 
@@ -26849,10 +27728,10 @@
 
 			if ( levels.length > 1 ) {
 
-				_v1$4.setFromMatrixPosition( camera.matrixWorld );
-				_v2$2.setFromMatrixPosition( this.matrixWorld );
+				_v1$5.setFromMatrixPosition( camera.matrixWorld );
+				_v2$3.setFromMatrixPosition( this.matrixWorld );
 
-				var distance = _v1$4.distanceTo( _v2$2 );
+				var distance = _v1$5.distanceTo( _v2$3 );
 
 				levels[ 0 ].object.visible = true;
 
@@ -27215,16 +28094,94 @@
 	} );
 
 	/**
-	 * @author mrdoob / http://mrdoob.com/
+	 * @author benaadams / https://twitter.com/ben_a_adams
 	 */
+
+	function InstancedBufferAttribute( array, itemSize, normalized, meshPerAttribute ) {
+
+		if ( typeof ( normalized ) === 'number' ) {
+
+			meshPerAttribute = normalized;
+
+			normalized = false;
+
+			console.error( 'THREE.InstancedBufferAttribute: The constructor now expects normalized as the third argument.' );
+
+		}
+
+		BufferAttribute.call( this, array, itemSize, normalized );
+
+		this.meshPerAttribute = meshPerAttribute || 1;
+
+	}
+
+	InstancedBufferAttribute.prototype = Object.assign( Object.create( BufferAttribute.prototype ), {
+
+		constructor: InstancedBufferAttribute,
+
+		isInstancedBufferAttribute: true,
+
+		copy: function ( source ) {
+
+			BufferAttribute.prototype.copy.call( this, source );
+
+			this.meshPerAttribute = source.meshPerAttribute;
+
+			return this;
+
+		},
+
+		toJSON: function ()	{
+
+			var data = BufferAttribute.prototype.toJSON.call( this );
+
+			data.meshPerAttribute = this.meshPerAttribute;
+
+			data.isInstancedBufferAttribute = true;
+
+			return data;
+
+		}
+
+	} );
+
+	/**
+	 * @author mrdoob / http://mrdoob.com/
+	 *
+	 * backport from r185(阶段三 4.2#1): instanceColor / getMatrixAt / getColorAt /
+	 * computeBoundingBox / computeBoundingSphere / raycast / copy / dispose。
+	 * 渲染路径复用 r110 已有 ANGLE_instanced_arrays 分支(WebGLRenderer 补
+	 * instanceColor attribute 绑定)。逐实例 morphTexture 依赖 WebGL2 整数纹理
+	 * 路径, 按差距分析 3.3 节明确不移植。
+	 */
+
+	var _instanceLocalMatrix = new Matrix4();
+	var _instanceWorldMatrix = new Matrix4();
+
+	var _instanceIntersects = [];
+
+	var _box3 = new Box3();
+	var _identity = new Matrix4();
+	var _mesh = new Mesh();
+	var _sphere$2 = new Sphere();
 
 	function InstancedMesh( geometry, material, count ) {
 
 		Mesh.call( this, geometry, material );
 
-		this.instanceMatrix = new BufferAttribute( new Float32Array( count * 16 ), 16 );
+		this.instanceMatrix = new InstancedBufferAttribute( new Float32Array( count * 16 ), 16 );
+		this.instanceColor = null;
 
 		this.count = count;
+
+		this.boundingBox = null;
+		this.boundingSphere = null;
+
+		for ( var i = 0; i < count; i ++ ) {
+
+			this.setMatrixAt( i, _identity );
+
+		}
 
 	}
 
@@ -27234,15 +28191,1353 @@
 
 		isInstancedMesh: true,
 
-		raycast: function () {},
+		computeBoundingBox: function () {
+
+			var geometry = this.geometry;
+			var count = this.count;
+
+			if ( this.boundingBox === null ) {
+
+				this.boundingBox = new Box3();
+
+			}
+
+			if ( geometry.boundingBox === null ) {
+
+				geometry.computeBoundingBox();
+
+			}
+
+			this.boundingBox.makeEmpty();
+
+			for ( var i = 0; i < count; i ++ ) {
+
+				this.getMatrixAt( i, _instanceLocalMatrix );
+
+				_box3.copy( geometry.boundingBox ).applyMatrix4( _instanceLocalMatrix );
+
+				this.boundingBox.union( _box3 );
+
+			}
+
+		},
+
+		computeBoundingSphere: function () {
+
+			var geometry = this.geometry;
+			var count = this.count;
+
+			if ( this.boundingSphere === null ) {
+
+				this.boundingSphere = new Sphere();
+
+			}
+
+			if ( geometry.boundingSphere === null ) {
+
+				geometry.computeBoundingSphere();
+
+			}
+
+			this.boundingSphere.makeEmpty();
+
+			for ( var i = 0; i < count; i ++ ) {
+
+				this.getMatrixAt( i, _instanceLocalMatrix );
+
+				_sphere$2.copy( geometry.boundingSphere ).applyMatrix4( _instanceLocalMatrix );
+
+				this.boundingSphere.union( _sphere$2 );
+
+			}
+
+		},
+
+		copy: function ( source, recursive ) {
+
+			Mesh.prototype.copy.call( this, source, recursive );
+
+			this.instanceMatrix.copy( source.instanceMatrix );
+
+			if ( source.instanceColor !== null ) { this.instanceColor = source.instanceColor.clone(); }
+
+			this.count = source.count;
+
+			if ( source.boundingBox !== null ) { this.boundingBox = source.boundingBox.clone(); }
+			if ( source.boundingSphere !== null ) { this.boundingSphere = source.boundingSphere.clone(); }
+
+			return this;
+
+		},
+
+		getColorAt: function ( index, color ) {
+
+			if ( this.instanceColor === null ) {
+
+				return color.setRGB( 1, 1, 1 );
+
+			}
+
+			return color.fromArray( this.instanceColor.array, index * 3 );
+
+		},
+
+		getMatrixAt: function ( index, matrix ) {
+
+			return matrix.fromArray( this.instanceMatrix.array, index * 16 );
+
+		},
+
+		raycast: function ( raycaster, intersects ) {
+
+			var matrixWorld = this.matrixWorld;
+			var raycastTimes = this.count;
+
+			_mesh.geometry = this.geometry;
+			_mesh.material = this.material;
+
+			if ( _mesh.material === undefined ) { return; }
+
+			// test with bounding sphere first
+
+			if ( this.boundingSphere === null ) { this.computeBoundingSphere(); }
+
+			_sphere$2.copy( this.boundingSphere );
+			_sphere$2.applyMatrix4( matrixWorld );
+
+			if ( raycaster.ray.intersectsSphere( _sphere$2 ) === false ) { return; }
+
+			// now test each instance
+
+			for ( var instanceId = 0; instanceId < raycastTimes; instanceId ++ ) {
+
+				// calculate the world matrix for each instance
+
+				this.getMatrixAt( instanceId, _instanceLocalMatrix );
+
+				_instanceWorldMatrix.multiplyMatrices( matrixWorld, _instanceLocalMatrix );
+
+				// the mesh represents this single instance
+
+				_mesh.matrixWorld = _instanceWorldMatrix;
+
+				_mesh.raycast( raycaster, _instanceIntersects );
+
+				// process the result of raycast
+
+				for ( var i = 0, l = _instanceIntersects.length; i < l; i ++ ) {
+
+					var intersect = _instanceIntersects[ i ];
+					intersect.instanceId = instanceId;
+					intersect.object = this;
+					intersects.push( intersect );
+
+				}
+
+				_instanceIntersects.length = 0;
+
+			}
+
+		},
+
+		setColorAt: function ( index, color ) {
+
+			if ( this.instanceColor === null ) {
+
+				var colorArray = new Float32Array( this.instanceMatrix.count * 3 );
+
+				for ( var i = 0; i < colorArray.length; i ++ ) { colorArray[ i ] = 1; }
+
+				this.instanceColor = new InstancedBufferAttribute( colorArray, 3 );
+
+			}
+
+			color.toArray( this.instanceColor.array, index * 3 );
+			return this;
+
+		},
 
 		setMatrixAt: function ( index, matrix ) {
 
 			matrix.toArray( this.instanceMatrix.array, index * 16 );
+			return this;
 
 		},
 
-		updateMorphTargets: function () {}
+		updateMorphTargets: function () {},
+
+		dispose: function () {
+
+			this.dispatchEvent( { type: 'dispose' } );
+
+		}
+
+	} );
+
+	/**
+	 * BatchedMesh — backport from r185, WebGL1 改造版(阶段三 4.2#2)
+	 *
+	 * 与 r185 官方版的差异(全部为 WebGL1 约束下的等价降级, 见差距分析 3.2 节 #10):
+	 * 1. 间接索引纹理由 usampler2D 整数纹理(RedIntegerFormat/UnsignedIntType)改为
+	 *    RGBA float DataTexture(id 存 .r 通道, float32 整数精度 2^24 足够);
+	 * 2. 矩阵/颜色/间接纹理尺寸按 2 的幂对齐(与 r110 boneTexture 同策略, 规避
+	 *    低端真机 NPOT float 纹理兼容性问题);
+	 * 3. r110 BufferAttribute 无 addUpdateRange 多段增量上传, 统一置 needsUpdate
+	 *    全量上传(LDraw 场景几何在加载期一次写入, 无每帧增量, 代价可忽略);
+	 * 4. 剔除用 Frustum.setFromProjectionMatrix(本轮已 backport), 不含
+	 *    ArrayCamera/reversedDepth 分支(小程序无 XR);
+	 * 5. 绘制端: 有 WEBGL_multi_draw 扩展时一次 multiDrawElementsWEBGL 提交;
+	 *    无扩展时渲染器循环 drawElements + _gl_DrawID uniform(r185 自带的
+	 *    fallback 方案), 仍省掉逐对象的 program/material/attribute 切换。
+	 *
+	 * 能力要求(consumer 通过 THREE.global.detectCapabilities 判定):
+	 * floatTexture + vertexTextures; multiDraw 可选(无则走循环 fallback)。
+	 * 不支持 shadow map 深度材质合批(LDraw 场景未启用阴影)。
+	 */
+
+	function ascIdSort( a, b ) {
+
+		return a - b;
+
+	}
+
+	function sortOpaque( a, b ) {
+
+		return a.z - b.z;
+
+	}
+
+	function sortTransparent( a, b ) {
+
+		return b.z - a.z;
+
+	}
+
+	function MultiDrawRenderList() {
+
+		this.index = 0;
+		this.pool = [];
+		this.list = [];
+
+	}
+
+	Object.assign( MultiDrawRenderList.prototype, {
+
+		push: function ( start, count, z, index ) {
+
+			var pool = this.pool;
+			var list = this.list;
+			if ( this.index >= pool.length ) {
+
+				pool.push( { start: - 1, count: - 1, z: - 1, index: - 1 } );
+
+			}
+
+			var item = pool[ this.index ];
+			list.push( item );
+			this.index ++;
+
+			item.start = start;
+			item.count = count;
+			item.z = z;
+			item.index = index;
+
+		},
+
+		reset: function () {
+
+			this.list.length = 0;
+			this.index = 0;
+
+		}
+
+	} );
+
+	var _matrix$1 = new Matrix4();
+	var _whiteColor = new Color( 1, 1, 1 );
+	var _frustum = new Frustum();
+	var _box$3 = new Box3();
+	var _sphere$3 = new Sphere();
+	var _vector$6 = new Vector3();
+	var _forward = new Vector3();
+	var _temp = new Vector3();
+	var _renderList = new MultiDrawRenderList();
+	var _mesh$1 = new Mesh();
+	var _batchIntersects = [];
+
+	// copies data from attribute "src" into "target" starting at "targetOffset"
+	function copyAttributeData( src, target, targetOffset ) {
+
+		var itemSize = target.itemSize;
+		if ( src.isInterleavedBufferAttribute || src.array.constructor !== target.array.constructor ) {
+
+			// use the component getters and setters if the array data cannot
+			// be copied directly
+			var vertexCount = src.count;
+			for ( var i = 0; i < vertexCount; i ++ ) {
+
+				for ( var c = 0; c < itemSize; c ++ ) {
+
+					setComponent( target, i + targetOffset, c, getComponent( src, i, c ) );
+
+				}
+
+			}
+
+		} else {
+
+			// faster copy approach using typed array set function
+			target.array.set( src.array, targetOffset * itemSize );
+
+		}
+
+		target.needsUpdate = true;
+
+	}
+
+	// r110 BufferAttribute 无 get/setComponent, 以数组下标等价实现
+	function getComponent( attribute, index, component ) {
+
+		return attribute.array[ index * attribute.itemSize + component ];
+
+	}
+
+	function setComponent( attribute, index, component, value ) {
+
+		attribute.array[ index * attribute.itemSize + component ] = value;
+
+	}
+
+	function BatchedMesh( maxInstanceCount, maxVertexCount, maxIndexCount, material ) {
+
+		if ( maxIndexCount === undefined ) { maxIndexCount = maxVertexCount * 2; }
+
+		Mesh.call( this, new BufferGeometry(), material );
+
+		this.perObjectFrustumCulled = true;
+		this.sortObjects = true;
+		this.boundingBox = null;
+		this.boundingSphere = null;
+		this.customSort = null;
+
+		// stores visible, active, and geometry id per instance and reserved buffer ranges for geometries
+		this._instanceInfo = [];
+		this._geometryInfo = [];
+
+		// instance, geometry ids that have been set as inactive, and are available to be overwritten
+		this._availableInstanceIds = [];
+		this._availableGeometryIds = [];
+
+		// used to track where the next point is that geometry should be inserted
+		this._nextIndexStart = 0;
+		this._nextVertexStart = 0;
+		this._geometryCount = 0;
+
+		// flags
+		this._visibilityChanged = true;
+		this._geometryInitialized = false;
+
+		// cached user options
+		this._maxInstanceCount = maxInstanceCount;
+		this._maxVertexCount = maxVertexCount;
+		this._maxIndexCount = maxIndexCount;
+
+		// buffers for multi draw
+		this._multiDrawCounts = new Int32Array( maxInstanceCount );
+		this._multiDrawStarts = new Int32Array( maxInstanceCount );
+		this._multiDrawCount = 0;
+
+		// Local matrix per geometry by using data texture
+		this._matricesTexture = null;
+		this._indirectTexture = null;
+		this._colorsTexture = null;
+
+		this._initMatricesTexture();
+		this._initIndirectTexture();
+
+	}
+
+	BatchedMesh.prototype = Object.assign( Object.create( Mesh.prototype ), {
+
+		constructor: BatchedMesh,
+
+		isBatchedMesh: true,
+
+		_initMatricesTexture: function () {
+
+			// layout (1 matrix = 4 pixels)  RGBA RGBA RGBA RGBA (=> column1..column4)
+			var size = Math.sqrt( this._maxInstanceCount * 4 );
+			size = _Math.ceilPowerOfTwo( Math.ceil( size / 4 ) * 4 );
+			size = Math.max( size, 4 );
+
+			var matricesArray = new Float32Array( size * size * 4 );
+			this._matricesTexture = new DataTexture( matricesArray, size, size, RGBAFormat, FloatType );
+
+		},
+
+		// GL1 改造: float 纹理编码间接索引(id 存 .r), 替代 r185 的整数纹理
+		_initIndirectTexture: function () {
+
+			var size = _Math.ceilPowerOfTwo( Math.ceil( Math.sqrt( this._maxInstanceCount ) ) );
+			size = Math.max( size, 4 );
+
+			var indirectArray = new Float32Array( size * size * 4 );
+			this._indirectTexture = new DataTexture( indirectArray, size, size, RGBAFormat, FloatType );
+
+		},
+
+		_initColorsTexture: function () {
+
+			var size = _Math.ceilPowerOfTwo( Math.ceil( Math.sqrt( this._maxInstanceCount ) ) );
+			size = Math.max( size, 4 );
+
+			// 4 floats per RGBA pixel initialized to white
+			var colorsArray = new Float32Array( size * size * 4 );
+			for ( var i = 0; i < colorsArray.length; i ++ ) { colorsArray[ i ] = 1; }
+
+			this._colorsTexture = new DataTexture( colorsArray, size, size, RGBAFormat, FloatType );
+
+		},
+
+		_initializeGeometry: function ( reference ) {
+
+			var geometry = this.geometry;
+			var maxVertexCount = this._maxVertexCount;
+			var maxIndexCount = this._maxIndexCount;
+			if ( this._geometryInitialized === false ) {
+
+				for ( var attributeName in reference.attributes ) {
+
+					var srcAttribute = reference.getAttribute( attributeName );
+					var dstArray = new srcAttribute.array.constructor( maxVertexCount * srcAttribute.itemSize );
+					var dstAttribute = new BufferAttribute( dstArray, srcAttribute.itemSize, srcAttribute.normalized );
+
+					geometry.setAttribute( attributeName, dstAttribute );
+
+				}
+
+				if ( reference.getIndex() !== null ) {
+
+					var indexArray = maxVertexCount > 65535
+						? new Uint32Array( maxIndexCount )
+						: new Uint16Array( maxIndexCount );
+
+					geometry.setIndex( new BufferAttribute( indexArray, 1 ) );
+
+				}
+
+				this._geometryInitialized = true;
+
+			}
+
+		},
+
+		// Make sure the geometry is compatible with the existing combined geometry attributes
+		_validateGeometry: function ( geometry ) {
+
+			var batchGeometry = this.geometry;
+			if ( Boolean( geometry.getIndex() ) !== Boolean( batchGeometry.getIndex() ) ) {
+
+				throw new Error( 'THREE.BatchedMesh: All geometries must consistently have "index".' );
+
+			}
+
+			for ( var attributeName in batchGeometry.attributes ) {
+
+				if ( geometry.attributes[ attributeName ] === undefined ) {
+
+					throw new Error( 'THREE.BatchedMesh: Added geometry missing "' + attributeName + '". All geometries must have consistent attributes.' );
+
+				}
+
+				var srcAttribute = geometry.getAttribute( attributeName );
+				var dstAttribute = batchGeometry.getAttribute( attributeName );
+				if ( srcAttribute.itemSize !== dstAttribute.itemSize || srcAttribute.normalized !== dstAttribute.normalized ) {
+
+					throw new Error( 'THREE.BatchedMesh: All attributes must have a consistent itemSize and normalized value.' );
+
+				}
+
+			}
+
+		},
+
+		validateInstanceId: function ( instanceId ) {
+
+			var instanceInfo = this._instanceInfo;
+			if ( instanceId < 0 || instanceId >= instanceInfo.length || instanceInfo[ instanceId ].active === false ) {
+
+				throw new Error( 'THREE.BatchedMesh: Invalid instanceId ' + instanceId + '. Instance is either out of range or has been deleted.' );
+
+			}
+
+		},
+
+		validateGeometryId: function ( geometryId ) {
+
+			var geometryInfoList = this._geometryInfo;
+			if ( geometryId < 0 || geometryId >= geometryInfoList.length || geometryInfoList[ geometryId ].active === false ) {
+
+				throw new Error( 'THREE.BatchedMesh: Invalid geometryId ' + geometryId + '. Geometry is either out of range or has been deleted.' );
+
+			}
+
+		},
+
+		setCustomSort: function ( func ) {
+
+			this.customSort = func;
+			return this;
+
+		},
+
+		computeBoundingBox: function () {
+
+			if ( this.boundingBox === null ) {
+
+				this.boundingBox = new Box3();
+
+			}
+
+			var boundingBox = this.boundingBox;
+			var instanceInfo = this._instanceInfo;
+
+			boundingBox.makeEmpty();
+			for ( var i = 0, l = instanceInfo.length; i < l; i ++ ) {
+
+				if ( instanceInfo[ i ].active === false ) { continue; }
+
+				var geometryId = instanceInfo[ i ].geometryIndex;
+				this.getMatrixAt( i, _matrix$1 );
+				this.getBoundingBoxAt( geometryId, _box$3 ).applyMatrix4( _matrix$1 );
+				boundingBox.union( _box$3 );
+
+			}
+
+		},
+
+		computeBoundingSphere: function () {
+
+			if ( this.boundingSphere === null ) {
+
+				this.boundingSphere = new Sphere();
+
+			}
+
+			var boundingSphere = this.boundingSphere;
+			var instanceInfo = this._instanceInfo;
+
+			boundingSphere.makeEmpty();
+			for ( var i = 0, l = instanceInfo.length; i < l; i ++ ) {
+
+				if ( instanceInfo[ i ].active === false ) { continue; }
+
+				var geometryId = instanceInfo[ i ].geometryIndex;
+				this.getMatrixAt( i, _matrix$1 );
+				this.getBoundingSphereAt( geometryId, _sphere$3 ).applyMatrix4( _matrix$1 );
+				boundingSphere.union( _sphere$3 );
+
+			}
+
+		},
+
+		addInstance: function ( geometryId ) {
+
+			var atCapacity = this._instanceInfo.length >= this._maxInstanceCount;
+
+			// ensure we're not over geometry
+			if ( atCapacity && this._availableInstanceIds.length === 0 ) {
+
+				throw new Error( 'THREE.BatchedMesh: Maximum item count reached.' );
+
+			}
+
+			var instanceInfo = {
+				visible: true,
+				active: true,
+				geometryIndex: geometryId
+			};
+
+			var drawId = null;
+
+			// Prioritize using previously freed instance ids
+			if ( this._availableInstanceIds.length > 0 ) {
+
+				this._availableInstanceIds.sort( ascIdSort );
+
+				drawId = this._availableInstanceIds.shift();
+				this._instanceInfo[ drawId ] = instanceInfo;
+
+			} else {
+
+				drawId = this._instanceInfo.length;
+				this._instanceInfo.push( instanceInfo );
+
+			}
+
+			var matricesTexture = this._matricesTexture;
+			_matrix$1.identity().toArray( matricesTexture.image.data, drawId * 16 );
+			matricesTexture.needsUpdate = true;
+
+			var colorsTexture = this._colorsTexture;
+			if ( colorsTexture ) {
+
+				_whiteColor.toArray( colorsTexture.image.data, drawId * 4 );
+				colorsTexture.needsUpdate = true;
+
+			}
+
+			this._visibilityChanged = true;
+			return drawId;
+
+		},
+
+		addGeometry: function ( geometry, reservedVertexCount, reservedIndexCount ) {
+
+			if ( reservedVertexCount === undefined ) { reservedVertexCount = - 1; }
+			if ( reservedIndexCount === undefined ) { reservedIndexCount = - 1; }
+
+			this._initializeGeometry( geometry );
+
+			this._validateGeometry( geometry );
+
+			var geometryInfo = {
+				// geometry information
+				vertexStart: - 1,
+				vertexCount: - 1,
+				reservedVertexCount: - 1,
+
+				indexStart: - 1,
+				indexCount: - 1,
+				reservedIndexCount: - 1,
+
+				// draw range information
+				start: - 1,
+				count: - 1,
+
+				// state
+				boundingBox: null,
+				boundingSphere: null,
+				active: true
+			};
+
+			var geometryInfoList = this._geometryInfo;
+			geometryInfo.vertexStart = this._nextVertexStart;
+			geometryInfo.reservedVertexCount = reservedVertexCount === - 1 ? geometry.getAttribute( 'position' ).count : reservedVertexCount;
+
+			var index = geometry.getIndex();
+			var hasIndex = index !== null;
+			if ( hasIndex ) {
+
+				geometryInfo.indexStart = this._nextIndexStart;
+				geometryInfo.reservedIndexCount = reservedIndexCount === - 1 ? index.count : reservedIndexCount;
+
+			}
+
+			if (
+				geometryInfo.indexStart !== - 1 &&
+				geometryInfo.indexStart + geometryInfo.reservedIndexCount > this._maxIndexCount ||
+				geometryInfo.vertexStart + geometryInfo.reservedVertexCount > this._maxVertexCount
+			) {
+
+				throw new Error( 'THREE.BatchedMesh: Reserved space request exceeds the maximum buffer size.' );
+
+			}
+
+			// update id
+			var geometryId;
+			if ( this._availableGeometryIds.length > 0 ) {
+
+				this._availableGeometryIds.sort( ascIdSort );
+
+				geometryId = this._availableGeometryIds.shift();
+				geometryInfoList[ geometryId ] = geometryInfo;
+
+			} else {
+
+				geometryId = this._geometryCount;
+				this._geometryCount ++;
+				geometryInfoList.push( geometryInfo );
+
+			}
+
+			// update the geometry
+			this.setGeometryAt( geometryId, geometry );
+
+			// increment the next geometry position
+			this._nextIndexStart = geometryInfo.indexStart + geometryInfo.reservedIndexCount;
+			this._nextVertexStart = geometryInfo.vertexStart + geometryInfo.reservedVertexCount;
+
+			return geometryId;
+
+		},
+
+		setGeometryAt: function ( geometryId, geometry ) {
+
+			if ( geometryId >= this._geometryCount ) {
+
+				throw new Error( 'THREE.BatchedMesh: Maximum geometry count reached.' );
+
+			}
+
+			this._validateGeometry( geometry );
+
+			var batchGeometry = this.geometry;
+			var hasIndex = batchGeometry.getIndex() !== null;
+			var dstIndex = batchGeometry.getIndex();
+			var srcIndex = geometry.getIndex();
+			var geometryInfo = this._geometryInfo[ geometryId ];
+			if (
+				hasIndex &&
+				srcIndex.count > geometryInfo.reservedIndexCount ||
+				geometry.attributes.position.count > geometryInfo.reservedVertexCount
+			) {
+
+				throw new Error( 'THREE.BatchedMesh: Reserved space not large enough for provided geometry.' );
+
+			}
+
+			// copy geometry buffer data over
+			var vertexStart = geometryInfo.vertexStart;
+			var reservedVertexCount = geometryInfo.reservedVertexCount;
+			geometryInfo.vertexCount = geometry.getAttribute( 'position' ).count;
+
+			for ( var attributeName in batchGeometry.attributes ) {
+
+				// copy attribute data
+				var srcAttribute = geometry.getAttribute( attributeName );
+				var dstAttribute = batchGeometry.getAttribute( attributeName );
+				copyAttributeData( srcAttribute, dstAttribute, vertexStart );
+
+				// fill the rest in with zeroes
+				var itemSize = srcAttribute.itemSize;
+				for ( var i = srcAttribute.count, l = reservedVertexCount; i < l; i ++ ) {
+
+					var index = vertexStart + i;
+					for ( var c = 0; c < itemSize; c ++ ) {
+
+						setComponent( dstAttribute, index, c, 0 );
+
+					}
+
+				}
+
+				// GL1 改造: 无 addUpdateRange, 全量上传
+				dstAttribute.needsUpdate = true;
+
+			}
+
+			// copy index
+			if ( hasIndex ) {
+
+				var indexStart = geometryInfo.indexStart;
+				var reservedIndexCount = geometryInfo.reservedIndexCount;
+				geometryInfo.indexCount = geometry.getIndex().count;
+
+				// copy index data over
+				for ( var j = 0; j < srcIndex.count; j ++ ) {
+
+					dstIndex.setX( indexStart + j, vertexStart + srcIndex.getX( j ) );
+
+				}
+
+				// fill the rest in with zeroes
+				for ( var k = srcIndex.count, kl = reservedIndexCount; k < kl; k ++ ) {
+
+					dstIndex.setX( indexStart + k, vertexStart );
+
+				}
+
+				dstIndex.needsUpdate = true;
+
+			}
+
+			// update the draw range
+			geometryInfo.start = hasIndex ? geometryInfo.indexStart : geometryInfo.vertexStart;
+			geometryInfo.count = hasIndex ? geometryInfo.indexCount : geometryInfo.vertexCount;
+
+			// store the bounding boxes
+			geometryInfo.boundingBox = null;
+			if ( geometry.boundingBox !== null ) {
+
+				geometryInfo.boundingBox = geometry.boundingBox.clone();
+
+			}
+
+			geometryInfo.boundingSphere = null;
+			if ( geometry.boundingSphere !== null ) {
+
+				geometryInfo.boundingSphere = geometry.boundingSphere.clone();
+
+			}
+
+			this._visibilityChanged = true;
+			return geometryId;
+
+		},
+
+		deleteGeometry: function ( geometryId ) {
+
+			var geometryInfoList = this._geometryInfo;
+			if ( geometryId >= geometryInfoList.length || geometryInfoList[ geometryId ].active === false ) {
+
+				return this;
+
+			}
+
+			// delete any instances associated with this geometry
+			var instanceInfo = this._instanceInfo;
+			for ( var i = 0, l = instanceInfo.length; i < l; i ++ ) {
+
+				if ( instanceInfo[ i ].active && instanceInfo[ i ].geometryIndex === geometryId ) {
+
+					this.deleteInstance( i );
+
+				}
+
+			}
+
+			geometryInfoList[ geometryId ].active = false;
+			this._availableGeometryIds.push( geometryId );
+			this._visibilityChanged = true;
+
+			return this;
+
+		},
+
+		deleteInstance: function ( instanceId ) {
+
+			this.validateInstanceId( instanceId );
+
+			this._instanceInfo[ instanceId ].active = false;
+			this._availableInstanceIds.push( instanceId );
+			this._visibilityChanged = true;
+
+			return this;
+
+		},
+
+		getBoundingBoxAt: function ( geometryId, target ) {
+
+			if ( geometryId >= this._geometryCount ) {
+
+				return null;
+
+			}
+
+			// compute bounding box
+			var geometry = this.geometry;
+			var geometryInfo = this._geometryInfo[ geometryId ];
+			if ( geometryInfo.boundingBox === null ) {
+
+				var box = new Box3();
+				var index = geometry.index;
+				var position = geometry.attributes.position;
+				for ( var i = geometryInfo.start, l = geometryInfo.start + geometryInfo.count; i < l; i ++ ) {
+
+					var iv = i;
+					if ( index ) {
+
+						iv = index.getX( iv );
+
+					}
+
+					box.expandByPoint( _vector$6.fromBufferAttribute( position, iv ) );
+
+				}
+
+				geometryInfo.boundingBox = box;
+
+			}
+
+			target.copy( geometryInfo.boundingBox );
+			return target;
+
+		},
+
+		getBoundingSphereAt: function ( geometryId, target ) {
+
+			if ( geometryId >= this._geometryCount ) {
+
+				return null;
+
+			}
+
+			// compute bounding sphere
+			var geometry = this.geometry;
+			var geometryInfo = this._geometryInfo[ geometryId ];
+			if ( geometryInfo.boundingSphere === null ) {
+
+				var sphere = new Sphere();
+				this.getBoundingBoxAt( geometryId, _box$3 );
+				_box$3.getCenter( sphere.center );
+
+				var index = geometry.index;
+				var position = geometry.attributes.position;
+
+				var maxRadiusSq = 0;
+				for ( var i = geometryInfo.start, l = geometryInfo.start + geometryInfo.count; i < l; i ++ ) {
+
+					var iv = i;
+					if ( index ) {
+
+						iv = index.getX( iv );
+
+					}
+
+					_vector$6.fromBufferAttribute( position, iv );
+					maxRadiusSq = Math.max( maxRadiusSq, sphere.center.distanceToSquared( _vector$6 ) );
+
+				}
+
+				sphere.radius = Math.sqrt( maxRadiusSq );
+				geometryInfo.boundingSphere = sphere;
+
+			}
+
+			target.copy( geometryInfo.boundingSphere );
+			return target;
+
+		},
+
+		setMatrixAt: function ( instanceId, matrix ) {
+
+			this.validateInstanceId( instanceId );
+
+			var matricesTexture = this._matricesTexture;
+			matrix.toArray( matricesTexture.image.data, instanceId * 16 );
+			matricesTexture.needsUpdate = true;
+
+			return this;
+
+		},
+
+		getMatrixAt: function ( instanceId, matrix ) {
+
+			this.validateInstanceId( instanceId );
+			return matrix.fromArray( this._matricesTexture.image.data, instanceId * 16 );
+
+		},
+
+		setColorAt: function ( instanceId, color ) {
+
+			this.validateInstanceId( instanceId );
+
+			if ( this._colorsTexture === null ) {
+
+				this._initColorsTexture();
+
+			}
+
+			color.toArray( this._colorsTexture.image.data, instanceId * 4 );
+			this._colorsTexture.image.data[ instanceId * 4 + 3 ] = 1.0;
+			this._colorsTexture.needsUpdate = true;
+
+			return this;
+
+		},
+
+		getColorAt: function ( instanceId, color ) {
+
+			this.validateInstanceId( instanceId );
+			if ( this._colorsTexture === null ) {
+
+				return color.setRGB( 1, 1, 1 );
+
+			}
+
+			return color.fromArray( this._colorsTexture.image.data, instanceId * 4 );
+
+		},
+
+		setVisibleAt: function ( instanceId, visible ) {
+
+			this.validateInstanceId( instanceId );
+
+			if ( this._instanceInfo[ instanceId ].visible === visible ) {
+
+				return this;
+
+			}
+
+			this._instanceInfo[ instanceId ].visible = visible;
+			this._visibilityChanged = true;
+
+			return this;
+
+		},
+
+		getVisibleAt: function ( instanceId ) {
+
+			this.validateInstanceId( instanceId );
+
+			return this._instanceInfo[ instanceId ].visible;
+
+		},
+
+		setGeometryIdAt: function ( instanceId, geometryId ) {
+
+			this.validateInstanceId( instanceId );
+			this.validateGeometryId( geometryId );
+
+			this._instanceInfo[ instanceId ].geometryIndex = geometryId;
+			this._visibilityChanged = true;
+
+			return this;
+
+		},
+
+		getGeometryIdAt: function ( instanceId ) {
+
+			this.validateInstanceId( instanceId );
+
+			return this._instanceInfo[ instanceId ].geometryIndex;
+
+		},
+
+		getGeometryRangeAt: function ( geometryId, target ) {
+
+			this.validateGeometryId( geometryId );
+
+			if ( target === undefined ) { target = {}; }
+
+			var geometryInfo = this._geometryInfo[ geometryId ];
+			target.vertexStart = geometryInfo.vertexStart;
+			target.vertexCount = geometryInfo.vertexCount;
+			target.reservedVertexCount = geometryInfo.reservedVertexCount;
+
+			target.indexStart = geometryInfo.indexStart;
+			target.indexCount = geometryInfo.indexCount;
+			target.reservedIndexCount = geometryInfo.reservedIndexCount;
+
+			target.start = geometryInfo.start;
+			target.count = geometryInfo.count;
+
+			return target;
+
+		},
+
+		raycast: function ( raycaster, intersects ) {
+
+			var instanceInfo = this._instanceInfo;
+			var geometryInfoList = this._geometryInfo;
+			var matrixWorld = this.matrixWorld;
+			var batchGeometry = this.geometry;
+
+			// iterate over each geometry
+			_mesh$1.material = this.material;
+			_mesh$1.geometry.index = batchGeometry.index;
+			_mesh$1.geometry.attributes = batchGeometry.attributes;
+			if ( _mesh$1.geometry.boundingBox === null ) {
+
+				_mesh$1.geometry.boundingBox = new Box3();
+
+			}
+
+			if ( _mesh$1.geometry.boundingSphere === null ) {
+
+				_mesh$1.geometry.boundingSphere = new Sphere();
+
+			}
+
+			for ( var i = 0, l = instanceInfo.length; i < l; i ++ ) {
+
+				if ( ! instanceInfo[ i ].visible || ! instanceInfo[ i ].active ) {
+
+					continue;
+
+				}
+
+				var geometryId = instanceInfo[ i ].geometryIndex;
+				var geometryInfo = geometryInfoList[ geometryId ];
+				_mesh$1.geometry.setDrawRange( geometryInfo.start, geometryInfo.count );
+
+				// get the intersects
+				this.getMatrixAt( i, _mesh$1.matrixWorld ).premultiply( matrixWorld );
+				this.getBoundingBoxAt( geometryId, _mesh$1.geometry.boundingBox );
+				this.getBoundingSphereAt( geometryId, _mesh$1.geometry.boundingSphere );
+				_mesh$1.raycast( raycaster, _batchIntersects );
+
+				// add batch id to the intersects
+				for ( var j = 0, jl = _batchIntersects.length; j < jl; j ++ ) {
+
+					var intersect = _batchIntersects[ j ];
+					intersect.object = this;
+					intersect.batchId = i;
+					intersects.push( intersect );
+
+				}
+
+				_batchIntersects.length = 0;
+
+			}
+
+			_mesh$1.material = null;
+			_mesh$1.geometry.index = null;
+			_mesh$1.geometry.attributes = {};
+			_mesh$1.geometry.setDrawRange( 0, Infinity );
+
+		},
+
+		copy: function ( source, recursive ) {
+
+			Mesh.prototype.copy.call( this, source, recursive );
+
+			this.geometry = source.geometry.clone();
+			this.perObjectFrustumCulled = source.perObjectFrustumCulled;
+			this.sortObjects = source.sortObjects;
+			this.boundingBox = source.boundingBox !== null ? source.boundingBox.clone() : null;
+			this.boundingSphere = source.boundingSphere !== null ? source.boundingSphere.clone() : null;
+
+			this._geometryInfo = source._geometryInfo.map( function ( info ) {
+
+				var cloned = Object.assign( {}, info );
+				cloned.boundingBox = info.boundingBox !== null ? info.boundingBox.clone() : null;
+				cloned.boundingSphere = info.boundingSphere !== null ? info.boundingSphere.clone() : null;
+				return cloned;
+
+			} );
+			this._instanceInfo = source._instanceInfo.map( function ( info ) {
+
+				return Object.assign( {}, info );
+
+			} );
+
+			this._availableInstanceIds = source._availableInstanceIds.slice();
+			this._availableGeometryIds = source._availableGeometryIds.slice();
+
+			this._nextIndexStart = source._nextIndexStart;
+			this._nextVertexStart = source._nextVertexStart;
+			this._geometryCount = source._geometryCount;
+
+			this._maxInstanceCount = source._maxInstanceCount;
+			this._maxVertexCount = source._maxVertexCount;
+			this._maxIndexCount = source._maxIndexCount;
+
+			this._geometryInitialized = source._geometryInitialized;
+			this._multiDrawCounts = source._multiDrawCounts.slice();
+			this._multiDrawStarts = source._multiDrawStarts.slice();
+
+			this._indirectTexture = source._indirectTexture.clone();
+			this._indirectTexture.image.data = this._indirectTexture.image.data.slice();
+
+			this._matricesTexture = source._matricesTexture.clone();
+			this._matricesTexture.image.data = this._matricesTexture.image.data.slice();
+
+			if ( source._colorsTexture !== null ) {
+
+				this._colorsTexture = source._colorsTexture.clone();
+				this._colorsTexture.image.data = this._colorsTexture.image.data.slice();
+
+			}
+
+			return this;
+
+		},
+
+		dispose: function () {
+
+			// Assuming the geometry is not shared with other meshes
+			this.geometry.dispose();
+
+			this._matricesTexture.dispose();
+			this._matricesTexture = null;
+
+			this._indirectTexture.dispose();
+			this._indirectTexture = null;
+
+			if ( this._colorsTexture !== null ) {
+
+				this._colorsTexture.dispose();
+				this._colorsTexture = null;
+
+			}
+
+		},
+
+		onBeforeRender: function ( renderer, scene, camera, geometry, material /*, group */ ) {
+
+			// if visibility has not changed and frustum culling and object sorting is not required
+			// then skip iterating over all items
+			if ( ! this._visibilityChanged && ! this.perObjectFrustumCulled && ! this.sortObjects ) {
+
+				return;
+
+			}
+
+			// the indexed version of the multi draw function requires specifying the start
+			// offset in bytes.
+			var index = geometry.getIndex();
+			var bytesPerElement = index === null ? 1 : index.array.BYTES_PER_ELEMENT;
+
+			// wireframe 隐式让顶点数翻倍(每三角形 3 条线)
+			var multiDrawMultiplier = 1;
+			if ( material && material.wireframe ) {
+
+				multiDrawMultiplier = 2;
+				bytesPerElement = geometry.attributes.position.count > 65535 ? 4 : 2;
+
+			}
+
+			var instanceInfo = this._instanceInfo;
+			var multiDrawStarts = this._multiDrawStarts;
+			var multiDrawCounts = this._multiDrawCounts;
+			var geometryInfoList = this._geometryInfo;
+			var perObjectFrustumCulled = this.perObjectFrustumCulled;
+			var indirectTexture = this._indirectTexture;
+			var indirectArray = indirectTexture.image.data;
+
+			// prepare the frustum in the local frame
+			if ( perObjectFrustumCulled ) {
+
+				_matrix$1
+					.multiplyMatrices( camera.projectionMatrix, camera.matrixWorldInverse )
+					.multiply( this.matrixWorld );
+
+				_frustum.setFromProjectionMatrix( _matrix$1 );
+
+			}
+
+			var multiDrawCount = 0;
+			if ( this.sortObjects ) {
+
+				// get the camera position in the local frame
+				_matrix$1.copy( this.matrixWorld ).invert();
+				_vector$6.setFromMatrixPosition( camera.matrixWorld ).applyMatrix4( _matrix$1 );
+				_forward.set( 0, 0, - 1 ).transformDirection( camera.matrixWorld ).transformDirection( _matrix$1 );
+
+				for ( var i = 0, l = instanceInfo.length; i < l; i ++ ) {
+
+					if ( instanceInfo[ i ].visible && instanceInfo[ i ].active ) {
+
+						var geometryId = instanceInfo[ i ].geometryIndex;
+
+						// get the bounds in world space
+						this.getMatrixAt( i, _matrix$1 );
+						this.getBoundingSphereAt( geometryId, _sphere$3 ).applyMatrix4( _matrix$1 );
+
+						// determine whether the batched geometry is within the frustum
+						var culled = false;
+						if ( perObjectFrustumCulled ) {
+
+							culled = ! _frustum.intersectsSphere( _sphere$3 );
+
+						}
+
+						if ( ! culled ) {
+
+							// get the distance from camera used for sorting
+							var geometryInfo = geometryInfoList[ geometryId ];
+							var z = _temp.subVectors( _sphere$3.center, _vector$6 ).dot( _forward );
+							_renderList.push( geometryInfo.start, geometryInfo.count, z, i );
+
+						}
+
+					}
+
+				}
+
+				// Sort the draw ranges and prep for rendering
+				var list = _renderList.list;
+				var customSort = this.customSort;
+				if ( customSort === null ) {
+
+					list.sort( material && material.transparent ? sortTransparent : sortOpaque );
+
+				} else {
+
+					customSort.call( this, list, camera );
+
+				}
+
+				for ( var j = 0, jl = list.length; j < jl; j ++ ) {
+
+					var item = list[ j ];
+					multiDrawStarts[ multiDrawCount ] = item.start * bytesPerElement * multiDrawMultiplier;
+					multiDrawCounts[ multiDrawCount ] = item.count * multiDrawMultiplier;
+					indirectArray[ multiDrawCount * 4 ] = item.index; // GL1: float RGBA 纹理, id 存 .r
+					multiDrawCount ++;
+
+				}
+
+				_renderList.reset();
+
+			} else {
+
+				for ( var k = 0, kl = instanceInfo.length; k < kl; k ++ ) {
+
+					if ( instanceInfo[ k ].visible && instanceInfo[ k ].active ) {
+
+						var geometryId2 = instanceInfo[ k ].geometryIndex;
+
+						// determine whether the batched geometry is within the frustum
+						var culled2 = false;
+						if ( perObjectFrustumCulled ) {
+
+							// get the bounds in world space
+							this.getMatrixAt( k, _matrix$1 );
+							this.getBoundingSphereAt( geometryId2, _sphere$3 ).applyMatrix4( _matrix$1 );
+							culled2 = ! _frustum.intersectsSphere( _sphere$3 );
+
+						}
+
+						if ( ! culled2 ) {
+
+							var geometryInfo2 = geometryInfoList[ geometryId2 ];
+							multiDrawStarts[ multiDrawCount ] = geometryInfo2.start * bytesPerElement * multiDrawMultiplier;
+							multiDrawCounts[ multiDrawCount ] = geometryInfo2.count * multiDrawMultiplier;
+							indirectArray[ multiDrawCount * 4 ] = k; // GL1: float RGBA 纹理, id 存 .r
+							multiDrawCount ++;
+
+						}
+
+					}
+
+				}
+
+			}
+
+			indirectTexture.needsUpdate = true;
+			this._multiDrawCount = multiDrawCount;
+			this._visibilityChanged = false;
+
+		}
+
+	} );
+
+	Object.defineProperties( BatchedMesh.prototype, {
+
+		maxInstanceCount: {
+			get: function () {
+
+				return this._maxInstanceCount;
+
+			}
+		},
+
+		instanceCount: {
+			get: function () {
+
+				return this._instanceInfo.length - this._availableInstanceIds.length;
+
+			}
+		},
+
+		unusedVertexCount: {
+			get: function () {
+
+				return this._maxVertexCount - this._nextVertexStart;
+
+			}
+		},
+
+		unusedIndexCount: {
+			get: function () {
+
+				return this._maxIndexCount - this._nextIndexStart;
+
+			}
+		}
 
 	} );
 
@@ -27303,7 +29598,7 @@
 	var _end = new Vector3();
 	var _inverseMatrix$1 = new Matrix4();
 	var _ray$1 = new Ray();
-	var _sphere$2 = new Sphere();
+	var _sphere$4 = new Sphere();
 
 	function Line( geometry, material, mode ) {
 
@@ -27381,7 +29676,11 @@
 
 		raycast: function ( raycaster, intersects ) {
 
-			var precision = raycaster.linePrecision;
+			// backport from r185: 阈值优先取 params.Line.threshold(世界单位, 可调),
+			// 兼容 r110 旧 API linePrecision(默认两者同为 1, 行为不变)
+			var precision = ( raycaster.params.Line && raycaster.params.Line.threshold !== undefined )
+				? raycaster.params.Line.threshold
+				: raycaster.linePrecision;
 
 			var geometry = this.geometry;
 			var matrixWorld = this.matrixWorld;
@@ -27390,11 +29689,11 @@
 
 			if ( geometry.boundingSphere === null ) { geometry.computeBoundingSphere(); }
 
-			_sphere$2.copy( geometry.boundingSphere );
-			_sphere$2.applyMatrix4( matrixWorld );
-			_sphere$2.radius += precision;
+			_sphere$4.copy( geometry.boundingSphere );
+			_sphere$4.applyMatrix4( matrixWorld );
+			_sphere$4.radius += precision;
 
-			if ( raycaster.ray.intersectsSphere( _sphere$2 ) === false ) { return; }
+			if ( raycaster.ray.intersectsSphere( _sphere$4 ) === false ) { return; }
 
 			//
 
@@ -27694,7 +29993,7 @@
 
 	var _inverseMatrix$2 = new Matrix4();
 	var _ray$2 = new Ray();
-	var _sphere$3 = new Sphere();
+	var _sphere$5 = new Sphere();
 	var _position$1 = new Vector3();
 
 	function Points( geometry, material ) {
@@ -27726,11 +30025,11 @@
 
 			if ( geometry.boundingSphere === null ) { geometry.computeBoundingSphere(); }
 
-			_sphere$3.copy( geometry.boundingSphere );
-			_sphere$3.applyMatrix4( matrixWorld );
-			_sphere$3.radius += threshold;
+			_sphere$5.copy( geometry.boundingSphere );
+			_sphere$5.applyMatrix4( matrixWorld );
+			_sphere$5.radius += threshold;
 
-			if ( raycaster.ray.intersectsSphere( _sphere$3 ) === false ) { return; }
+			if ( raycaster.ray.intersectsSphere( _sphere$5 ) === false ) { return; }
 
 			//
 
@@ -33406,240 +35705,525 @@
 		Material: Material
 	});
 
+	// backport from r185: makeClipAdditive / subclip(升级差距分析说明 3.0 §2.1)
+
 	/**
-	 * @author tschw
-	 * @author Ben Houston / http://clara.io/
-	 * @author David Sarno / http://lighthaus.us/
+	 * r110 保留函数: 类型数组/普通数组统一切片(KeyframeTrack.trim/optimize/clone 消费)。
+	 *
+	 * @param {TypedArray|Array} array - 源数组
+	 * @param {number} [from] - 起始下标
+	 * @param {number} [to] - 结束下标(不含)
+	 * @return {TypedArray|Array} 切片副本
 	 */
+	function arraySlice( array, from, to ) {
 
-	var AnimationUtils = {
+		if ( isTypedArray( array ) ) {
 
-		// same as Array.prototype.slice, but also works on typed arrays
-		arraySlice: function ( array, from, to ) {
+			// in ios9 array.subarray doesn't exist, so we use slice via TypedArray ctor
+			return new array.constructor( array.subarray( from, to !== undefined ? to : array.length ) );
 
-			if ( AnimationUtils.isTypedArray( array ) ) {
+		}
 
-				// in ios9 array.subarray(from, undefined) will return empty array
-				// but array.subarray(from) or array.subarray(from, len) is correct
-				return new array.constructor( array.subarray( from, to !== undefined ? to : array.length ) );
+		return array.slice( from, to );
+
+	}
+
+	/**
+	 * Converts an array to a specific type.
+	 *
+	 * @param {TypedArray|Array} array - The array to convert.
+	 * @param {TypedArray.constructor} type - The constructor of a typed array that defines the new type.
+	 * @return {TypedArray} The converted array.
+	 */
+	function convertArray( array, type ) {
+
+		if ( ! array || array.constructor === type ) { return array; }
+
+		if ( typeof type.BYTES_PER_ELEMENT === 'number' ) {
+
+			return new type( array ); // create typed array
+
+		}
+
+		return Array.prototype.slice.call( array ); // create Array
+
+	}
+
+	/**
+	 * Returns an array by which times and values can be sorted.
+	 *
+	 * @param {Array<number>} times - The keyframe time values.
+	 * @return {Array<number>} The array.
+	 */
+	function getKeyframeOrder( times ) {
+
+		function compareTime( i, j ) {
+
+			return times[ i ] - times[ j ];
+
+		}
+
+		var n = times.length;
+		var result = new Array( n );
+		for ( var i = 0; i !== n; ++ i ) { result[ i ] = i; }
+
+		result.sort( compareTime );
+
+		return result;
+
+	}
+
+	/**
+	 * Sorts the given array by the previously computed order via `getKeyframeOrder()`.
+	 *
+	 * @param {Array<number>} values - The values to sort.
+	 * @param {number} stride - The stride.
+	 * @param {Array<number>} order - The sort order.
+	 * @return {Array<number>} The sorted values.
+	 */
+	function sortedArray( values, stride, order ) {
+
+		var nValues = values.length;
+		var result = new values.constructor( nValues );
+
+		for ( var i = 0, dstOffset = 0; dstOffset !== nValues; ++ i ) {
+
+			var srcOffset = order[ i ] * stride;
+
+			for ( var j = 0; j !== stride; ++ j ) {
+
+				result[ dstOffset ++ ] = values[ srcOffset + j ];
 
 			}
 
-			return array.slice( from, to );
+		}
 
-		},
+		return result;
 
-		// converts an array to a specific type
-		convertArray: function ( array, type, forceClone ) {
+	}
 
-			if ( ! array || // let 'undefined' and 'null' pass
-				! forceClone && array.constructor === type ) { return array; }
+	/**
+	 * Used for parsing AOS keyframe formats.
+	 *
+	 * @param {Array<number>} jsonKeys - A list of JSON keyframes.
+	 * @param {Array<number>} times - This array will be filled with keyframe times by this function.
+	 * @param {Array<number>} values - This array will be filled with keyframe values by this function.
+	 * @param {string} valuePropertyName - The name of the property to use.
+	 */
+	function flattenJSON( jsonKeys, times, values, valuePropertyName ) {
 
-			if ( typeof type.BYTES_PER_ELEMENT === 'number' ) {
+		var i = 1, key = jsonKeys[ 0 ];
 
-				return new type( array ); // create typed array
+		while ( key !== undefined && key[ valuePropertyName ] === undefined ) {
 
-			}
+			key = jsonKeys[ i ++ ];
 
-			return Array.prototype.slice.call( array ); // create Array
+		}
 
-		},
+		if ( key === undefined ) { return; } // no data
 
-		isTypedArray: function ( object ) {
+		var value = key[ valuePropertyName ];
+		if ( value === undefined ) { return; } // no data
 
-			return ArrayBuffer.isView( object ) &&
-				! ( object instanceof DataView );
+		if ( Array.isArray( value ) ) {
 
-		},
+			do {
 
-		// returns an array by which times and values can be sorted
-		getKeyframeOrder: function ( times ) {
+				value = key[ valuePropertyName ];
 
-			function compareTime( i, j ) {
+				if ( value !== undefined ) {
 
-				return times[ i ] - times[ j ];
-
-			}
-
-			var n = times.length;
-			var result = new Array( n );
-			for ( var i = 0; i !== n; ++ i ) { result[ i ] = i; }
-
-			result.sort( compareTime );
-
-			return result;
-
-		},
-
-		// uses the array previously returned by 'getKeyframeOrder' to sort data
-		sortedArray: function ( values, stride, order ) {
-
-			var nValues = values.length;
-			var result = new values.constructor( nValues );
-
-			for ( var i = 0, dstOffset = 0; dstOffset !== nValues; ++ i ) {
-
-				var srcOffset = order[ i ] * stride;
-
-				for ( var j = 0; j !== stride; ++ j ) {
-
-					result[ dstOffset ++ ] = values[ srcOffset + j ];
+					times.push( key.time );
+					values.push.apply( values, value ); // push all elements
 
 				}
-
-			}
-
-			return result;
-
-		},
-
-		// function for parsing AOS keyframe formats
-		flattenJSON: function ( jsonKeys, times, values, valuePropertyName ) {
-
-			var i = 1, key = jsonKeys[ 0 ];
-
-			while ( key !== undefined && key[ valuePropertyName ] === undefined ) {
 
 				key = jsonKeys[ i ++ ];
 
+			} while ( key !== undefined );
+
+		} else if ( value.toArray !== undefined ) {
+
+			// ...assume THREE.Math-ish
+
+			do {
+
+				value = key[ valuePropertyName ];
+
+				if ( value !== undefined ) {
+
+					times.push( key.time );
+					value.toArray( values, values.length );
+
+				}
+
+				key = jsonKeys[ i ++ ];
+
+			} while ( key !== undefined );
+
+		} else {
+
+			// otherwise push as-is
+
+			do {
+
+				value = key[ valuePropertyName ];
+
+				if ( value !== undefined ) {
+
+					times.push( key.time );
+					values.push( value );
+
+				}
+
+				key = jsonKeys[ i ++ ];
+
+			} while ( key !== undefined );
+
+		}
+
+	}
+
+	/**
+	 * Creates a new clip, containing only the segment of the original clip between the given frames.
+	 *
+	 * @param {AnimationClip} sourceClip - The values to sort.
+	 * @param {string} name - The name of the clip.
+	 * @param {number} startFrame - The start frame.
+	 * @param {number} endFrame - The end frame.
+	 * @param {number} [fps=30] - The FPS.
+	 * @return {AnimationClip} The new sub clip.
+	 */
+	function subclip( sourceClip, name, startFrame, endFrame, fps ) {
+		if ( fps === void 0 ) fps = 30;
+
+
+		var clip = sourceClip.clone();
+
+		clip.name = name;
+
+		var tracks = [];
+
+		for ( var i = 0; i < clip.tracks.length; ++ i ) {
+
+			var track = clip.tracks[ i ];
+			var valueSize = track.getValueSize();
+
+			var times = [];
+			var values = [];
+
+			for ( var j = 0; j < track.times.length; ++ j ) {
+
+				var frame = track.times[ j ] * fps;
+
+				if ( frame < startFrame || frame >= endFrame ) { continue; }
+
+				times.push( track.times[ j ] );
+
+				for ( var k = 0; k < valueSize; ++ k ) {
+
+					values.push( track.values[ j * valueSize + k ] );
+
+				}
+
 			}
 
-			if ( key === undefined ) { return; } // no data
+			if ( times.length === 0 ) { continue; }
 
-			var value = key[ valuePropertyName ];
-			if ( value === undefined ) { return; } // no data
+			track.times = convertArray( times, track.times.constructor );
+			track.values = convertArray( values, track.values.constructor );
 
-			if ( Array.isArray( value ) ) {
+			tracks.push( track );
 
-				do {
+		}
 
-					value = key[ valuePropertyName ];
+		clip.tracks = tracks;
 
-					if ( value !== undefined ) {
+		// find minimum .times value across all tracks in the trimmed clip
 
-						times.push( key.time );
-						values.push.apply( values, value ); // push all elements
+		var minStartTime = Infinity;
 
-					}
+		for ( var i$1 = 0; i$1 < clip.tracks.length; ++ i$1 ) {
 
-					key = jsonKeys[ i ++ ];
+			if ( minStartTime > clip.tracks[ i$1 ].times[ 0 ] ) {
 
-				} while ( key !== undefined );
+				minStartTime = clip.tracks[ i$1 ].times[ 0 ];
 
-			} else if ( value.toArray !== undefined ) {
+			}
 
-				// ...assume THREE.Math-ish
+		}
 
-				do {
+		// shift all tracks such that clip begins at t=0
 
-					value = key[ valuePropertyName ];
+		for ( var i$2 = 0; i$2 < clip.tracks.length; ++ i$2 ) {
 
-					if ( value !== undefined ) {
+			clip.tracks[ i$2 ].shift( - 1 * minStartTime );
 
-						times.push( key.time );
-						value.toArray( values, values.length );
+		}
 
-					}
+		clip.resetDuration();
 
-					key = jsonKeys[ i ++ ];
+		return clip;
 
-				} while ( key !== undefined );
+	}
+
+	/**
+	 * Converts the keyframes of the given animation clip to an additive format.
+	 *
+	 * @param {AnimationClip} targetClip - The clip to make additive.
+	 * @param {number} [referenceFrame=0] - The reference frame.
+	 * @param {AnimationClip} [referenceClip=targetClip] - The reference clip.
+	 * @param {number} [fps=30] - The FPS.
+	 * @return {AnimationClip} The updated clip which is now additive.
+	 */
+	function makeClipAdditive( targetClip, referenceFrame, referenceClip, fps ) {
+		if ( referenceFrame === void 0 ) referenceFrame = 0;
+		if ( referenceClip === void 0 ) referenceClip = targetClip;
+		if ( fps === void 0 ) fps = 30;
+
+
+		if ( fps <= 0 ) { fps = 30; }
+
+		var numTracks = referenceClip.tracks.length;
+		var referenceTime = referenceFrame / fps;
+
+		// Make each track's values relative to the values at the reference frame
+		var loop = function ( i ) {
+
+			var referenceTrack = referenceClip.tracks[ i ];
+			var referenceTrackType = referenceTrack.ValueTypeName;
+
+			// Skip this track if it's non-numeric
+			if ( referenceTrackType === 'bool' || referenceTrackType === 'string' ) { return; }
+
+			// Find the track in the target clip whose name and type matches the reference track
+			var targetTrack = targetClip.tracks.find( function ( track ) {
+
+				return track.name === referenceTrack.name
+					&& track.ValueTypeName === referenceTrackType;
+
+			} );
+
+			if ( targetTrack === undefined ) { return; }
+
+			var referenceOffset = 0;
+			var referenceValueSize = referenceTrack.getValueSize();
+
+			if ( referenceTrack.createInterpolant.isInterpolantFactoryMethodGLTFCubicSpline ) {
+
+				referenceOffset = referenceValueSize / 3;
+
+			}
+
+			var targetOffset = 0;
+			var targetValueSize = targetTrack.getValueSize();
+
+			if ( targetTrack.createInterpolant.isInterpolantFactoryMethodGLTFCubicSpline ) {
+
+				targetOffset = targetValueSize / 3;
+
+			}
+
+			var lastIndex = referenceTrack.times.length - 1;
+			var referenceValue = (void 0);
+
+			// Find the value to subtract out of the track
+			if ( referenceTime <= referenceTrack.times[ 0 ] ) {
+
+				// Reference frame is earlier than the first keyframe, so just use the first keyframe
+				var startIndex = referenceOffset;
+				var endIndex = referenceValueSize - referenceOffset;
+				referenceValue = referenceTrack.values.slice( startIndex, endIndex );
+
+			} else if ( referenceTime >= referenceTrack.times[ lastIndex ] ) {
+
+				// Reference frame is after the last keyframe, so just use the last keyframe
+				var startIndex$1 = lastIndex * referenceValueSize + referenceOffset;
+				var endIndex$1 = startIndex$1 + referenceValueSize - referenceOffset;
+				referenceValue = referenceTrack.values.slice( startIndex$1, endIndex$1 );
 
 			} else {
 
-				// otherwise push as-is
-
-				do {
-
-					value = key[ valuePropertyName ];
-
-					if ( value !== undefined ) {
-
-						times.push( key.time );
-						values.push( value );
-
-					}
-
-					key = jsonKeys[ i ++ ];
-
-				} while ( key !== undefined );
+				// Interpolate to the reference value
+				var interpolant = referenceTrack.createInterpolant();
+				var startIndex$2 = referenceOffset;
+				var endIndex$2 = referenceValueSize - referenceOffset;
+				interpolant.evaluate( referenceTime );
+				referenceValue = interpolant.resultBuffer.slice( startIndex$2, endIndex$2 );
 
 			}
 
-		},
+			// Conjugate the quaternion
+			if ( referenceTrackType === 'quaternion' ) {
 
-		subclip: function ( sourceClip, name, startFrame, endFrame, fps ) {
+				var referenceQuat = new Quaternion().fromArray( referenceValue ).normalize().conjugate();
+				referenceQuat.toArray( referenceValue );
 
-			fps = fps || 30;
+			}
 
-			var clip = sourceClip.clone();
+			// Subtract the reference value from all of the track values
 
-			clip.name = name;
+			var numTimes = targetTrack.times.length;
+			for ( var j = 0; j < numTimes; ++ j ) {
 
-			var tracks = [];
+				var valueStart = j * targetValueSize + targetOffset;
 
-			for ( var i = 0; i < clip.tracks.length; ++ i ) {
+				if ( referenceTrackType === 'quaternion' ) {
 
-				var track = clip.tracks[ i ];
-				var valueSize = track.getValueSize();
+					// Multiply the conjugate for quaternion track types
+					Quaternion.multiplyQuaternionsFlat(
+						targetTrack.values,
+						valueStart,
+						referenceValue,
+						0,
+						targetTrack.values,
+						valueStart
+					);
 
-				var times = [];
-				var values = [];
+				} else {
 
-				for ( var j = 0; j < track.times.length; ++ j ) {
+					var valueEnd = targetValueSize - targetOffset * 2;
 
-					var frame = track.times[ j ] * fps;
+					// Subtract each value for all other numeric track types
+					for ( var k = 0; k < valueEnd; ++ k ) {
 
-					if ( frame < startFrame || frame >= endFrame ) { continue; }
-
-					times.push( track.times[ j ] );
-
-					for ( var k = 0; k < valueSize; ++ k ) {
-
-						values.push( track.values[ j * valueSize + k ] );
+						targetTrack.values[ valueStart + k ] -= referenceValue[ k ];
 
 					}
 
 				}
 
-				if ( times.length === 0 ) { continue; }
-
-				track.times = AnimationUtils.convertArray( times, track.times.constructor );
-				track.values = AnimationUtils.convertArray( values, track.values.constructor );
-
-				tracks.push( track );
-
 			}
 
-			clip.tracks = tracks;
+		};
 
-			// find minimum .times value across all tracks in the trimmed clip
+		for ( var i = 0; i < numTracks; ++ i ) loop( i );
 
-			var minStartTime = Infinity;
+		targetClip.blendMode = AdditiveAnimationBlendMode;
 
-			for ( var i = 0; i < clip.tracks.length; ++ i ) {
+		return targetClip;
 
-				if ( minStartTime > clip.tracks[ i ].times[ 0 ] ) {
+	}
 
-					minStartTime = clip.tracks[ i ].times[ 0 ];
+	/**
+	 * A class with various methods to assist with animations.
+	 *
+	 * @hideconstructor
+	 */
+	var AnimationUtils = function AnimationUtils () {};
 
-				}
+	AnimationUtils.arraySlice = function arraySlice$1 ( array, from, to ) {
 
-			}
+		return arraySlice( array, from, to );
 
-			// shift all tracks such that clip begins at t=0
+	};
 
-			for ( var i = 0; i < clip.tracks.length; ++ i ) {
+	/**
+		 * Converts an array to a specific type
+		 *
+		 * @static
+		 * @param {TypedArray|Array} array - The array to convert.
+		 * @param {TypedArray.constructor} type - The constructor of a type array.
+		 * @return {TypedArray} The converted array
+		 */
+	AnimationUtils.convertArray = function convertArray$1 ( array, type ) {
 
-				clip.tracks[ i ].shift( - 1 * minStartTime );
+		return convertArray( array, type );
 
-			}
+	};
 
-			clip.resetDuration();
+	/**
+		 * Returns `true` if the given object is a typed array.
+		 *
+		 * @static
+		 * @param {any} object - The object to check.
+		 * @return {boolean} Whether the given object is a typed array.
+		 */
+	AnimationUtils.isTypedArray = function isTypedArray$1 ( object ) {
 
-			return clip;
+		return isTypedArray( object );
 
-		}
+	};
+
+	/**
+		 * Returns an array by which times and values can be sorted.
+		 *
+		 * @static
+		 * @param {Array<number>} times - The keyframe time values.
+		 * @return {Array<number>} The array.
+		 */
+	AnimationUtils.getKeyframeOrder = function getKeyframeOrder$1 ( times ) {
+
+		return getKeyframeOrder( times );
+
+	};
+
+	/**
+		 * Sorts the given array by the previously computed order via `getKeyframeOrder()`.
+		 *
+		 * @static
+		 * @param {Array<number>} values - The values to sort.
+		 * @param {number} stride - The stride.
+		 * @param {Array<number>} order - The sort order.
+		 * @return {Array<number>} The sorted values.
+		 */
+	AnimationUtils.sortedArray = function sortedArray$1 ( values, stride, order ) {
+
+		return sortedArray( values, stride, order );
+
+	};
+
+	/**
+		 * Used for parsing AOS keyframe formats.
+		 *
+		 * @static
+		 * @param {Array<number>} jsonKeys - A list of JSON keyframes.
+		 * @param {Array<number>} times - This array will be filled with keyframe times by this method.
+		 * @param {Array<number>} values - This array will be filled with keyframe values by this method.
+		 * @param {string} valuePropertyName - The name of the property to use.
+		 */
+	AnimationUtils.flattenJSON = function flattenJSON$1 ( jsonKeys, times, values, valuePropertyName ) {
+
+		flattenJSON( jsonKeys, times, values, valuePropertyName );
+
+	};
+
+	/**
+		 * Creates a new clip, containing only the segment of the original clip between the given frames.
+		 *
+		 * @static
+		 * @param {AnimationClip} sourceClip - The values to sort.
+		 * @param {string} name - The name of the clip.
+		 * @param {number} startFrame - The start frame.
+		 * @param {number} endFrame - The end frame.
+		 * @param {number} [fps=30] - The FPS.
+		 * @return {AnimationClip} The new sub clip.
+		 */
+	AnimationUtils.subclip = function subclip$1 ( sourceClip, name, startFrame, endFrame, fps ) {
+			if ( fps === void 0 ) fps = 30;
+
+
+		return subclip( sourceClip, name, startFrame, endFrame, fps );
+
+	};
+
+	/**
+		 * Converts the keyframes of the given animation clip to an additive format.
+		 *
+		 * @static
+		 * @param {AnimationClip} targetClip - The clip to make additive.
+		 * @param {number} [referenceFrame=0] - The reference frame.
+		 * @param {AnimationClip} [referenceClip=targetClip] - The reference clip.
+		 * @param {number} [fps=30] - The FPS.
+		 * @return {AnimationClip} The updated clip which is now additive.
+		 */
+	AnimationUtils.makeClipAdditive = function makeClipAdditive$1 ( targetClip, referenceFrame, referenceClip, fps ) {
+			if ( referenceFrame === void 0 ) referenceFrame = 0;
+			if ( referenceClip === void 0 ) referenceClip = targetClip;
+			if ( fps === void 0 ) fps = 30;
+
+
+		return makeClipAdditive( targetClip, referenceFrame, referenceClip, fps );
 
 	};
 
@@ -34798,21 +37382,64 @@
 
 	} );
 
+	// backport from r185: clip 携带 blendMode(升级差距分析说明 3.0 §2.1)
+
+	var generateUUID = _Math.generateUUID;
+
 	/**
-	 *
-	 * Reusable set of Tracks that represent an animation.
-	 *
-	 * @author Ben Houston / http://clara.io/
-	 * @author David Sarno / http://lighthaus.us/
+	 * A reusable set of keyframe tracks which represent an animation.
 	 */
+	var AnimationClip = function AnimationClip( name, duration, tracks, blendMode ) {
+		if ( name === void 0 ) name = '';
+		if ( duration === void 0 ) duration = - 1;
+		if ( tracks === void 0 ) tracks = [];
+		if ( blendMode === void 0 ) blendMode = NormalAnimationBlendMode;
 
-	function AnimationClip( name, duration, tracks ) {
 
+		/**
+			 * The clip's name.
+			 *
+			 * @type {string}
+			 */
 		this.name = name;
-		this.tracks = tracks;
-		this.duration = ( duration !== undefined ) ? duration : - 1;
 
-		this.uuid = _Math.generateUUID();
+		/**
+			 *  An array of keyframe tracks.
+			 *
+			 * @type {Array<KeyframeTrack>}
+			 */
+		this.tracks = tracks;
+
+		/**
+			 * The clip's duration in seconds.
+			 *
+			 * @type {number}
+			 */
+		this.duration = duration;
+
+		/**
+			 * Defines how the animation is blended/combined when two or more animations
+			 * are simultaneously played.
+			 *
+			 * @type {(NormalAnimationBlendMode|AdditiveAnimationBlendMode)}
+			 */
+		this.blendMode = blendMode;
+
+		/**
+			 * The UUID of the animation clip.
+			 *
+			 * @type {string}
+			 * @readonly
+			 */
+		this.uuid = generateUUID();
+
+		/**
+			 * An object that can be used to store custom data about the animation clip.
+			 * It should not hold references to functions as these will not be cloned.
+			 *
+			 * @type {Object}
+			 */
+		this.userData = {};
 
 		// this means it should figure out its duration by scanning the tracks
 		if ( this.duration < 0 ) {
@@ -34821,7 +37448,330 @@
 
 		}
 
-	}
+	};
+
+	/**
+		 * Factory method for creating an animation clip from the given JSON.
+		 *
+		 * @static
+		 * @param {Object} json - The serialized animation clip.
+		 * @return {AnimationClip} The new animation clip.
+		 */
+	AnimationClip.parse = function parse ( json ) {
+
+		var tracks = [],
+			jsonTracks = json.tracks,
+			frameTime = 1.0 / ( json.fps || 1.0 );
+
+		for ( var i = 0, n = jsonTracks.length; i !== n; ++ i ) {
+
+			tracks.push( parseKeyframeTrack( jsonTracks[ i ] ).scale( frameTime ) );
+
+		}
+
+		var clip = new this( json.name, json.duration, tracks, json.blendMode );
+		clip.uuid = json.uuid;
+
+		clip.userData = JSON.parse( json.userData || '{}' );
+
+		return clip;
+
+	};
+
+	/**
+		 * Serializes the given animation clip into JSON.
+		 *
+		 * @static
+		 * @param {AnimationClip} clip - The animation clip to serialize.
+		 * @return {Object} The JSON object.
+		 */
+	AnimationClip.toJSON = function toJSON ( clip ) {
+
+		var tracks = [],
+			clipTracks = clip.tracks;
+
+		var json = {
+
+			'name': clip.name,
+			'duration': clip.duration,
+			'tracks': tracks,
+			'uuid': clip.uuid,
+			'blendMode': clip.blendMode,
+			'userData': JSON.stringify( clip.userData ),
+
+		};
+
+		for ( var i = 0, n = clipTracks.length; i !== n; ++ i ) {
+
+			tracks.push( KeyframeTrack.toJSON( clipTracks[ i ] ) );
+
+		}
+
+		return json;
+
+	};
+
+	/**
+		 * Returns a new animation clip from the passed morph targets array of a
+		 * geometry, taking a name and the number of frames per second.
+		 *
+		 * Note: The fps parameter is required, but the animation speed can be
+		 * overridden via {@link AnimationAction#setDuration}.
+		 *
+		 * @static
+		 * @param {string} name - The name of the animation clip.
+		 * @param {Array<Object>} morphTargetSequence - A sequence of morph targets.
+		 * @param {number} fps - The Frames-Per-Second value.
+		 * @param {boolean} noLoop - Whether the clip should be no loop or not.
+		 * @return {AnimationClip} The new animation clip.
+		 */
+	AnimationClip.CreateFromMorphTargetSequence = function CreateFromMorphTargetSequence ( name, morphTargetSequence, fps, noLoop ) {
+
+		var numMorphTargets = morphTargetSequence.length;
+		var tracks = [];
+
+		for ( var i = 0; i < numMorphTargets; i ++ ) {
+
+			var times = [];
+			var values = [];
+
+			times.push(
+				( i + numMorphTargets - 1 ) % numMorphTargets,
+				i,
+				( i + 1 ) % numMorphTargets );
+
+			values.push( 0, 1, 0 );
+
+			var order = getKeyframeOrder( times );
+			times = sortedArray( times, 1, order );
+			values = sortedArray( values, 1, order );
+
+			// if there is a key at the first frame, duplicate it as the
+			// last frame as well for perfect loop.
+			if ( ! noLoop && times[ 0 ] === 0 ) {
+
+				times.push( numMorphTargets );
+				values.push( values[ 0 ] );
+
+			}
+
+			tracks.push(
+				new NumberKeyframeTrack(
+					'.morphTargetInfluences[' + morphTargetSequence[ i ].name + ']',
+					times, values
+				).scale( 1.0 / fps ) );
+
+		}
+
+		return new this( name, - 1, tracks );
+
+	};
+
+	/**
+		 * Searches for an animation clip by name, taking as its first parameter
+		 * either an array of clips, or a mesh or geometry that contains an
+		 * array named "animations" property.
+		 *
+		 * @static
+		 * @param {(Array<AnimationClip>|Object3D)} objectOrClipArray - The array or object to search through.
+		 * @param {string} name - The name to search for.
+		 * @return {?AnimationClip} The found animation clip. Returns `null` if no clip has been found.
+		 */
+	AnimationClip.findByName = function findByName ( objectOrClipArray, name ) {
+
+		var clipArray = objectOrClipArray;
+
+		if ( ! Array.isArray( objectOrClipArray ) ) {
+
+			var o = objectOrClipArray;
+			clipArray = o.geometry && o.geometry.animations || o.animations;
+
+		}
+
+		for ( var i = 0; i < clipArray.length; i ++ ) {
+
+			if ( clipArray[ i ].name === name ) {
+
+				return clipArray[ i ];
+
+			}
+
+		}
+
+		return null;
+
+	};
+
+	/**
+		 * Returns an array of new AnimationClips created from the morph target
+		 * sequences of a geometry, trying to sort morph target names into
+		 * animation-group-based patterns like "Walk_001, Walk_002, Run_001, Run_002...".
+		 *
+		 * See {@link MD2Loader#parse} as an example for how the method should be used.
+		 *
+		 * @static
+		 * @param {Array<Object>} morphTargets - A sequence of morph targets.
+		 * @param {number} fps - The Frames-Per-Second value.
+		 * @param {boolean} noLoop - Whether the clip should be no loop or not.
+		 * @return {Array<AnimationClip>} An array of new animation clips.
+		 */
+	AnimationClip.CreateClipsFromMorphTargetSequences = function CreateClipsFromMorphTargetSequences ( morphTargets, fps, noLoop ) {
+
+		var animationToMorphTargets = {};
+
+		// tested with https://regex101.com/ on trick sequences
+		// such flamingo_flyA_003, flamingo_run1_003, crdeath0059
+		var pattern = /^([\w-]*?)([\d]+)$/;
+
+		// sort morph target names into animation groups based
+		// patterns like Walk_001, Walk_002, Run_001, Run_002
+		for ( var i = 0, il = morphTargets.length; i < il; i ++ ) {
+
+			var morphTarget = morphTargets[ i ];
+			var parts = morphTarget.name.match( pattern );
+
+			if ( parts && parts.length > 1 ) {
+
+				var name = parts[ 1 ];
+
+				var animationMorphTargets = animationToMorphTargets[ name ];
+
+				if ( ! animationMorphTargets ) {
+
+					animationToMorphTargets[ name ] = animationMorphTargets = [];
+
+				}
+
+				animationMorphTargets.push( morphTarget );
+
+			}
+
+		}
+
+		var clips = [];
+
+		for ( var name$1 in animationToMorphTargets ) {
+
+			clips.push( this.CreateFromMorphTargetSequence( name$1, animationToMorphTargets[ name$1 ], fps, noLoop ) );
+
+		}
+
+		return clips;
+
+	};
+
+	/**
+		 * Sets the duration of this clip to the duration of its longest keyframe track.
+		 *
+		 * @return {AnimationClip} A reference to this animation clip.
+		 */
+	AnimationClip.prototype.resetDuration = function resetDuration () {
+
+		var tracks = this.tracks;
+		var duration = 0;
+
+		for ( var i = 0, n = tracks.length; i !== n; ++ i ) {
+
+			var track = this.tracks[ i ];
+
+			duration = Math.max( duration, track.times[ track.times.length - 1 ] );
+
+		}
+
+		this.duration = duration;
+
+		return this;
+
+	};
+
+	/**
+		 * Trims all tracks to the clip's duration.
+		 *
+		 * @return {AnimationClip} A reference to this animation clip.
+		 */
+	AnimationClip.prototype.trim = function trim () {
+
+		for ( var i = 0; i < this.tracks.length; i ++ ) {
+
+			this.tracks[ i ].trim( 0, this.duration );
+
+		}
+
+		return this;
+
+	};
+
+	/**
+		 * Performs minimal validation on each track in the clip. Returns `true` if all
+		 * tracks are valid.
+		 *
+		 * @return {boolean} Whether the clip's keyframes are valid or not.
+		 */
+	AnimationClip.prototype.validate = function validate () {
+
+		var valid = true;
+
+		for ( var i = 0; i < this.tracks.length; i ++ ) {
+
+			valid = valid && this.tracks[ i ].validate();
+
+		}
+
+		return valid;
+
+	};
+
+	/**
+		 * Optimizes each track by removing equivalent sequential keys (which are
+		 * common in morph target sequences).
+		 *
+		 * @return {AnimationClip} A reference to this animation clip.
+		 */
+	AnimationClip.prototype.optimize = function optimize () {
+
+		for ( var i = 0; i < this.tracks.length; i ++ ) {
+
+			this.tracks[ i ].optimize();
+
+		}
+
+		return this;
+
+	};
+
+	/**
+		 * Returns a new animation clip with copied values from this instance.
+		 *
+		 * @return {AnimationClip} A clone of this instance.
+		 */
+	AnimationClip.prototype.clone = function clone () {
+
+		var tracks = [];
+
+		for ( var i = 0; i < this.tracks.length; i ++ ) {
+
+			tracks.push( this.tracks[ i ].clone() );
+
+		}
+
+		var clip = new this.constructor( this.name, this.duration, tracks, this.blendMode );
+
+		clip.userData = JSON.parse( JSON.stringify( this.userData ) );
+
+		return clip;
+
+	};
+
+	/**
+		 * Serializes this animation clip into JSON.
+		 *
+		 * @return {Object} The JSON object.
+		 */
+	AnimationClip.prototype.toJSON = function toJSON () {
+
+		return this.constructor.toJSON( this );
+
+	};
 
 	function getTrackTypeForValueTypeName( typeName ) {
 
@@ -34879,7 +37829,7 @@
 
 			var times = [], values = [];
 
-			AnimationUtils.flattenJSON( json.keys, times, values, 'value' );
+			flattenJSON( json.keys, times, values, 'value' );
 
 			json.times = times;
 			json.values = values;
@@ -34899,359 +37849,6 @@
 		}
 
 	}
-
-	Object.assign( AnimationClip, {
-
-		parse: function ( json ) {
-
-			var tracks = [],
-				jsonTracks = json.tracks,
-				frameTime = 1.0 / ( json.fps || 1.0 );
-
-			for ( var i = 0, n = jsonTracks.length; i !== n; ++ i ) {
-
-				tracks.push( parseKeyframeTrack( jsonTracks[ i ] ).scale( frameTime ) );
-
-			}
-
-			return new AnimationClip( json.name, json.duration, tracks );
-
-		},
-
-		toJSON: function ( clip ) {
-
-			var tracks = [],
-				clipTracks = clip.tracks;
-
-			var json = {
-
-				'name': clip.name,
-				'duration': clip.duration,
-				'tracks': tracks,
-				'uuid': clip.uuid
-
-			};
-
-			for ( var i = 0, n = clipTracks.length; i !== n; ++ i ) {
-
-				tracks.push( KeyframeTrack.toJSON( clipTracks[ i ] ) );
-
-			}
-
-			return json;
-
-		},
-
-		CreateFromMorphTargetSequence: function ( name, morphTargetSequence, fps, noLoop ) {
-
-			var numMorphTargets = morphTargetSequence.length;
-			var tracks = [];
-
-			for ( var i = 0; i < numMorphTargets; i ++ ) {
-
-				var times = [];
-				var values = [];
-
-				times.push(
-					( i + numMorphTargets - 1 ) % numMorphTargets,
-					i,
-					( i + 1 ) % numMorphTargets );
-
-				values.push( 0, 1, 0 );
-
-				var order = AnimationUtils.getKeyframeOrder( times );
-				times = AnimationUtils.sortedArray( times, 1, order );
-				values = AnimationUtils.sortedArray( values, 1, order );
-
-				// if there is a key at the first frame, duplicate it as the
-				// last frame as well for perfect loop.
-				if ( ! noLoop && times[ 0 ] === 0 ) {
-
-					times.push( numMorphTargets );
-					values.push( values[ 0 ] );
-
-				}
-
-				tracks.push(
-					new NumberKeyframeTrack(
-						'.morphTargetInfluences[' + morphTargetSequence[ i ].name + ']',
-						times, values
-					).scale( 1.0 / fps ) );
-
-			}
-
-			return new AnimationClip( name, - 1, tracks );
-
-		},
-
-		findByName: function ( objectOrClipArray, name ) {
-
-			var clipArray = objectOrClipArray;
-
-			if ( ! Array.isArray( objectOrClipArray ) ) {
-
-				var o = objectOrClipArray;
-				clipArray = o.geometry && o.geometry.animations || o.animations;
-
-			}
-
-			for ( var i = 0; i < clipArray.length; i ++ ) {
-
-				if ( clipArray[ i ].name === name ) {
-
-					return clipArray[ i ];
-
-				}
-
-			}
-
-			return null;
-
-		},
-
-		CreateClipsFromMorphTargetSequences: function ( morphTargets, fps, noLoop ) {
-
-			var animationToMorphTargets = {};
-
-			// tested with https://regex101.com/ on trick sequences
-			// such flamingo_flyA_003, flamingo_run1_003, crdeath0059
-			var pattern = /^([\w-]*?)([\d]+)$/;
-
-			// sort morph target names into animation groups based
-			// patterns like Walk_001, Walk_002, Run_001, Run_002
-			for ( var i = 0, il = morphTargets.length; i < il; i ++ ) {
-
-				var morphTarget = morphTargets[ i ];
-				var parts = morphTarget.name.match( pattern );
-
-				if ( parts && parts.length > 1 ) {
-
-					var name = parts[ 1 ];
-
-					var animationMorphTargets = animationToMorphTargets[ name ];
-					if ( ! animationMorphTargets ) {
-
-						animationToMorphTargets[ name ] = animationMorphTargets = [];
-
-					}
-
-					animationMorphTargets.push( morphTarget );
-
-				}
-
-			}
-
-			var clips = [];
-
-			for ( var name in animationToMorphTargets ) {
-
-				clips.push( AnimationClip.CreateFromMorphTargetSequence( name, animationToMorphTargets[ name ], fps, noLoop ) );
-
-			}
-
-			return clips;
-
-		},
-
-		// parse the animation.hierarchy format
-		parseAnimation: function ( animation, bones ) {
-
-			if ( ! animation ) {
-
-				console.error( 'THREE.AnimationClip: No animation in JSONLoader data.' );
-				return null;
-
-			}
-
-			var addNonemptyTrack = function ( trackType, trackName, animationKeys, propertyName, destTracks ) {
-
-				// only return track if there are actually keys.
-				if ( animationKeys.length !== 0 ) {
-
-					var times = [];
-					var values = [];
-
-					AnimationUtils.flattenJSON( animationKeys, times, values, propertyName );
-
-					// empty keys are filtered out, so check again
-					if ( times.length !== 0 ) {
-
-						destTracks.push( new trackType( trackName, times, values ) );
-
-					}
-
-				}
-
-			};
-
-			var tracks = [];
-
-			var clipName = animation.name || 'default';
-			// automatic length determination in AnimationClip.
-			var duration = animation.length || - 1;
-			var fps = animation.fps || 30;
-
-			var hierarchyTracks = animation.hierarchy || [];
-
-			for ( var h = 0; h < hierarchyTracks.length; h ++ ) {
-
-				var animationKeys = hierarchyTracks[ h ].keys;
-
-				// skip empty tracks
-				if ( ! animationKeys || animationKeys.length === 0 ) { continue; }
-
-				// process morph targets
-				if ( animationKeys[ 0 ].morphTargets ) {
-
-					// figure out all morph targets used in this track
-					var morphTargetNames = {};
-
-					for ( var k = 0; k < animationKeys.length; k ++ ) {
-
-						if ( animationKeys[ k ].morphTargets ) {
-
-							for ( var m = 0; m < animationKeys[ k ].morphTargets.length; m ++ ) {
-
-								morphTargetNames[ animationKeys[ k ].morphTargets[ m ] ] = - 1;
-
-							}
-
-						}
-
-					}
-
-					// create a track for each morph target with all zero
-					// morphTargetInfluences except for the keys in which
-					// the morphTarget is named.
-					for ( var morphTargetName in morphTargetNames ) {
-
-						var times = [];
-						var values = [];
-
-						for ( var m = 0; m !== animationKeys[ k ].morphTargets.length; ++ m ) {
-
-							var animationKey = animationKeys[ k ];
-
-							times.push( animationKey.time );
-							values.push( ( animationKey.morphTarget === morphTargetName ) ? 1 : 0 );
-
-						}
-
-						tracks.push( new NumberKeyframeTrack( '.morphTargetInfluence[' + morphTargetName + ']', times, values ) );
-
-					}
-
-					duration = morphTargetNames.length * ( fps || 1.0 );
-
-				} else {
-
-					// ...assume skeletal animation
-
-					var boneName = '.bones[' + bones[ h ].name + ']';
-
-					addNonemptyTrack(
-						VectorKeyframeTrack, boneName + '.position',
-						animationKeys, 'pos', tracks );
-
-					addNonemptyTrack(
-						QuaternionKeyframeTrack, boneName + '.quaternion',
-						animationKeys, 'rot', tracks );
-
-					addNonemptyTrack(
-						VectorKeyframeTrack, boneName + '.scale',
-						animationKeys, 'scl', tracks );
-
-				}
-
-			}
-
-			if ( tracks.length === 0 ) {
-
-				return null;
-
-			}
-
-			var clip = new AnimationClip( clipName, duration, tracks );
-
-			return clip;
-
-		}
-
-	} );
-
-	Object.assign( AnimationClip.prototype, {
-
-		resetDuration: function () {
-
-			var tracks = this.tracks, duration = 0;
-
-			for ( var i = 0, n = tracks.length; i !== n; ++ i ) {
-
-				var track = this.tracks[ i ];
-
-				duration = Math.max( duration, track.times[ track.times.length - 1 ] );
-
-			}
-
-			this.duration = duration;
-
-			return this;
-
-		},
-
-		trim: function () {
-
-			for ( var i = 0; i < this.tracks.length; i ++ ) {
-
-				this.tracks[ i ].trim( 0, this.duration );
-
-			}
-
-			return this;
-
-		},
-
-		validate: function () {
-
-			var valid = true;
-
-			for ( var i = 0; i < this.tracks.length; i ++ ) {
-
-				valid = valid && this.tracks[ i ].validate();
-
-			}
-
-			return valid;
-
-		},
-
-		optimize: function () {
-
-			for ( var i = 0; i < this.tracks.length; i ++ ) {
-
-				this.tracks[ i ].optimize();
-
-			}
-
-			return this;
-
-		},
-
-		clone: function () {
-
-			var tracks = [];
-
-			for ( var i = 0; i < this.tracks.length; i ++ ) {
-
-				tracks.push( this.tracks[ i ].clone() );
-
-			}
-
-			return new AnimationClip( this.name, this.duration, tracks );
-
-		}
-
-	} );
 
 	/**
 	 * @author mrdoob / http://mrdoob.com/
@@ -39271,29 +41868,44 @@
 
 			}
 
-			// Avoid the String.fromCharCode.apply(null, array) shortcut, which
-			// throws a "maximum call stack size exceeded" error for large arrays.
+			// 纯 JS UTF-8 解码回退: 旧实现 decodeURIComponent( escape( s ) )
+			// 对部分多字节边界出错(#16358), 小程序真机无 TextDecoder 时走此路径
 
 			var s = '';
+			var i = 0, il = array.length;
 
-			for ( var i = 0, il = array.length; i < il; i ++ ) {
+			while ( i < il ) {
 
-				// Implicitly assumes little-endian.
-				s += String.fromCharCode( array[ i ] );
+				var byte1 = array[ i ++ ];
+
+				if ( byte1 < 0x80 ) {
+
+					s += String.fromCharCode( byte1 );
+
+				} else if ( byte1 < 0xE0 ) {
+
+					var byte2 = array[ i ++ ] & 0x3F;
+					s += String.fromCharCode( ( ( byte1 & 0x1F ) << 6 ) | byte2 );
+
+				} else if ( byte1 < 0xF0 ) {
+
+					var byte2 = array[ i ++ ] & 0x3F;
+					var byte3 = array[ i ++ ] & 0x3F;
+					s += String.fromCharCode( ( ( byte1 & 0x0F ) << 12 ) | ( byte2 << 6 ) | byte3 );
+
+				} else {
+
+					var byte2 = array[ i ++ ] & 0x3F;
+					var byte3 = array[ i ++ ] & 0x3F;
+					var byte4 = array[ i ++ ] & 0x3F;
+					var codepoint = ( ( ( byte1 & 0x07 ) << 18 ) | ( byte2 << 12 ) | ( byte3 << 6 ) | byte4 ) - 0x10000;
+					s += String.fromCharCode( 0xD800 + ( codepoint >> 10 ), 0xDC00 + ( codepoint & 0x3FF ) );
+
+				}
 
 			}
 
-			try {
-
-				// merges multi-byte utf-8 characters.
-
-				return decodeURIComponent( escape( s ) );
-
-			} catch ( e ) { // see #16358
-
-				return s;
-
-			}
+			return s;
 
 		},
 
@@ -39351,58 +41963,6 @@
 			data.maxInstancedCount = this.maxInstancedCount;
 
 			data.isInstancedBufferGeometry = true;
-
-			return data;
-
-		}
-
-	} );
-
-	/**
-	 * @author benaadams / https://twitter.com/ben_a_adams
-	 */
-
-	function InstancedBufferAttribute( array, itemSize, normalized, meshPerAttribute ) {
-
-		if ( typeof ( normalized ) === 'number' ) {
-
-			meshPerAttribute = normalized;
-
-			normalized = false;
-
-			console.error( 'THREE.InstancedBufferAttribute: The constructor now expects normalized as the third argument.' );
-
-		}
-
-		BufferAttribute.call( this, array, itemSize, normalized );
-
-		this.meshPerAttribute = meshPerAttribute || 1;
-
-	}
-
-	InstancedBufferAttribute.prototype = Object.assign( Object.create( BufferAttribute.prototype ), {
-
-		constructor: InstancedBufferAttribute,
-
-		isInstancedBufferAttribute: true,
-
-		copy: function ( source ) {
-
-			BufferAttribute.prototype.copy.call( this, source );
-
-			this.meshPerAttribute = source.meshPerAttribute;
-
-			return this;
-
-		},
-
-		toJSON: function ()	{
-
-			var data = BufferAttribute.prototype.toJSON.call( this );
-
-			data.meshPerAttribute = this.meshPerAttribute;
-
-			data.isInstancedBufferAttribute = true;
 
 			return data;
 
@@ -42390,43 +44950,32 @@
 
 	} );
 
+	// backport from r185: additive 动画混合(升级差距分析说明 3.0 §2.1)
+
 	/**
-	 *
-	 * Buffered scene graph property that allows weighted accumulation.
-	 *
-	 *
-	 * @author Ben Houston / http://clara.io/
-	 * @author David Sarno / http://lighthaus.us/
-	 * @author tschw
+	 * Buffered scene graph property that allows weighted accumulation; used internally.
 	 */
+	var PropertyMixer = function PropertyMixer( binding, typeName, valueSize ) {
 
-	function PropertyMixer( binding, typeName, valueSize ) {
-
+		/**
+			 * The property binding.
+			 *
+			 * @type {PropertyBinding}
+			 */
 		this.binding = binding;
+
+		/**
+			 * The keyframe track value size.
+			 *
+			 * @type {number}
+			 */
 		this.valueSize = valueSize;
 
-		var bufferType = Float64Array,
-			mixFunction;
+		var mixFunction,
+			mixFunctionAdditive,
+			setIdentity;
 
-		switch ( typeName ) {
-
-			case 'quaternion':
-				mixFunction = this._slerp;
-				break;
-
-			case 'string':
-			case 'bool':
-				bufferType = Array;
-				mixFunction = this._select;
-				break;
-
-			default:
-				mixFunction = this._lerp;
-
-		}
-
-		this.buffer = new bufferType( valueSize * 4 );
-		// layout: [ incoming | accu0 | accu1 | orig ]
+		// buffer layout: [ incoming | accu0 | accu1 | orig | addAccu | (optional work) ]
 		//
 		// interpolators can use .buffer as their .result
 		// the data then goes to 'incoming'
@@ -42436,164 +44985,342 @@
 		// changes
 		//
 		// 'orig' stores the original state of the property
+		//
+		// 'add' is used for additive cumulative results
+		//
+		// 'work' is optional and is only present for quaternion types. It is used
+		// to store intermediate quaternion multiplication results
+
+		switch ( typeName ) {
+
+			case 'quaternion':
+				mixFunction = this._slerp;
+				mixFunctionAdditive = this._slerpAdditive;
+				setIdentity = this._setAdditiveIdentityQuaternion;
+
+				this.buffer = new Float64Array( valueSize * 6 );
+				this._workIndex = 5;
+				break;
+
+			case 'string':
+			case 'bool':
+				mixFunction = this._select;
+
+				// Use the regular mix function and for additive on these types,
+				// additive is not relevant for non-numeric types
+				mixFunctionAdditive = this._select;
+
+				setIdentity = this._setAdditiveIdentityOther;
+
+				this.buffer = new Array( valueSize * 5 );
+				break;
+
+			default:
+				mixFunction = this._lerp;
+				mixFunctionAdditive = this._lerpAdditive;
+				setIdentity = this._setAdditiveIdentityNumeric;
+
+				this.buffer = new Float64Array( valueSize * 5 );
+
+		}
 
 		this._mixBufferRegion = mixFunction;
+		this._mixBufferRegionAdditive = mixFunctionAdditive;
+		this._setIdentity = setIdentity;
+		this._origIndex = 3;
+		this._addIndex = 4;
 
+		/**
+			 * Accumulated weight of the property binding.
+			 *
+			 * @type {number}
+			 * @default 0
+			 */
 		this.cumulativeWeight = 0;
 
+		/**
+			 * Accumulated additive weight of the property binding.
+			 *
+			 * @type {number}
+			 * @default 0
+			 */
+		this.cumulativeWeightAdditive = 0;
+
+		/**
+			 * Number of active keyframe tracks currently using this property binding.
+			 *
+			 * @type {number}
+			 * @default 0
+			 */
 		this.useCount = 0;
+
+		/**
+			 * Number of keyframe tracks referencing this property binding.
+			 *
+			 * @type {number}
+			 * @default 0
+			 */
 		this.referenceCount = 0;
 
-	}
+	};
 
-	Object.assign( PropertyMixer.prototype, {
+	/**
+		 * Accumulates data in the `incoming` region into `accu<i>`.
+		 *
+		 * @param {number} accuIndex - The accumulation index.
+		 * @param {number} weight - The weight.
+		 */
+	PropertyMixer.prototype.accumulate = function accumulate ( accuIndex, weight ) {
 
-		// accumulate data in the 'incoming' region into 'accu<i>'
-		accumulate: function ( accuIndex, weight ) {
+		// note: happily accumulating nothing when weight = 0, the caller knows
+		// the weight and shouldn't have made the call in the first place
 
-			// note: happily accumulating nothing when weight = 0, the caller knows
-			// the weight and shouldn't have made the call in the first place
+		var buffer = this.buffer,
+			stride = this.valueSize,
+			offset = accuIndex * stride + stride;
 
-			var buffer = this.buffer,
-				stride = this.valueSize,
-				offset = accuIndex * stride + stride,
+		var currentWeight = this.cumulativeWeight;
 
-				currentWeight = this.cumulativeWeight;
+		if ( currentWeight === 0 ) {
 
-			if ( currentWeight === 0 ) {
-
-				// accuN := incoming * weight
-
-				for ( var i = 0; i !== stride; ++ i ) {
-
-					buffer[ offset + i ] = buffer[ i ];
-
-				}
-
-				currentWeight = weight;
-
-			} else {
-
-				// accuN := accuN + incoming * weight
-
-				currentWeight += weight;
-				var mix = weight / currentWeight;
-				this._mixBufferRegion( buffer, offset, 0, mix, stride );
-
-			}
-
-			this.cumulativeWeight = currentWeight;
-
-		},
-
-		// apply the state of 'accu<i>' to the binding when accus differ
-		apply: function ( accuIndex ) {
-
-			var stride = this.valueSize,
-				buffer = this.buffer,
-				offset = accuIndex * stride + stride,
-
-				weight = this.cumulativeWeight,
-
-				binding = this.binding;
-
-			this.cumulativeWeight = 0;
-
-			if ( weight < 1 ) {
-
-				// accuN := accuN + original * ( 1 - cumulativeWeight )
-
-				var originalValueOffset = stride * 3;
-
-				this._mixBufferRegion(
-					buffer, offset, originalValueOffset, 1 - weight, stride );
-
-			}
-
-			for ( var i = stride, e = stride + stride; i !== e; ++ i ) {
-
-				if ( buffer[ i ] !== buffer[ i + stride ] ) {
-
-					// value has changed -> update scene graph
-
-					binding.setValue( buffer, offset );
-					break;
-
-				}
-
-			}
-
-		},
-
-		// remember the state of the bound property and copy it to both accus
-		saveOriginalState: function () {
-
-			var binding = this.binding;
-
-			var buffer = this.buffer,
-				stride = this.valueSize,
-
-				originalValueOffset = stride * 3;
-
-			binding.getValue( buffer, originalValueOffset );
-
-			// accu[0..1] := orig -- initially detect changes against the original
-			for ( var i = stride, e = originalValueOffset; i !== e; ++ i ) {
-
-				buffer[ i ] = buffer[ originalValueOffset + ( i % stride ) ];
-
-			}
-
-			this.cumulativeWeight = 0;
-
-		},
-
-		// apply the state previously taken via 'saveOriginalState' to the binding
-		restoreOriginalState: function () {
-
-			var originalValueOffset = this.valueSize * 3;
-			this.binding.setValue( this.buffer, originalValueOffset );
-
-		},
-
-
-		// mix functions
-
-		_select: function ( buffer, dstOffset, srcOffset, t, stride ) {
-
-			if ( t >= 0.5 ) {
-
-				for ( var i = 0; i !== stride; ++ i ) {
-
-					buffer[ dstOffset + i ] = buffer[ srcOffset + i ];
-
-				}
-
-			}
-
-		},
-
-		_slerp: function ( buffer, dstOffset, srcOffset, t ) {
-
-			Quaternion.slerpFlat( buffer, dstOffset, buffer, dstOffset, buffer, srcOffset, t );
-
-		},
-
-		_lerp: function ( buffer, dstOffset, srcOffset, t, stride ) {
-
-			var s = 1 - t;
+			// accuN := incoming * weight
 
 			for ( var i = 0; i !== stride; ++ i ) {
 
-				var j = dstOffset + i;
+				buffer[ offset + i ] = buffer[ i ];
 
-				buffer[ j ] = buffer[ j ] * s + buffer[ srcOffset + i ] * t;
+			}
+
+			currentWeight = weight;
+
+		} else {
+
+			// accuN := accuN + incoming * weight
+
+			currentWeight += weight;
+			var mix = weight / currentWeight;
+			this._mixBufferRegion( buffer, offset, 0, mix, stride );
+
+		}
+
+		this.cumulativeWeight = currentWeight;
+
+	};
+
+	/**
+		 * Accumulates data in the `incoming` region into `add`.
+		 *
+		 * @param {number} weight - The weight.
+		 */
+	PropertyMixer.prototype.accumulateAdditive = function accumulateAdditive ( weight ) {
+
+		var buffer = this.buffer,
+			stride = this.valueSize,
+			offset = stride * this._addIndex;
+
+		if ( this.cumulativeWeightAdditive === 0 ) {
+
+			// add = identity
+
+			this._setIdentity();
+
+		}
+
+		// add := add + incoming * weight
+
+		this._mixBufferRegionAdditive( buffer, offset, 0, weight, stride );
+		this.cumulativeWeightAdditive += weight;
+
+	};
+
+	/**
+		 * Applies the state of `accu<i>` to the binding when accus differ.
+		 *
+		 * @param {number} accuIndex - The accumulation index.
+		 */
+	PropertyMixer.prototype.apply = function apply ( accuIndex ) {
+
+		var stride = this.valueSize,
+			buffer = this.buffer,
+			offset = accuIndex * stride + stride,
+
+			weight = this.cumulativeWeight,
+			weightAdditive = this.cumulativeWeightAdditive,
+
+			binding = this.binding;
+
+		this.cumulativeWeight = 0;
+		this.cumulativeWeightAdditive = 0;
+
+		if ( weight < 1 ) {
+
+			// accuN := accuN + original * ( 1 - cumulativeWeight )
+
+			var originalValueOffset = stride * this._origIndex;
+
+			this._mixBufferRegion(
+				buffer, offset, originalValueOffset, 1 - weight, stride );
+
+		}
+
+		if ( weightAdditive > 0 ) {
+
+			// accuN := accuN + additive accuN
+
+			this._mixBufferRegionAdditive( buffer, offset, this._addIndex * stride, 1, stride );
+
+		}
+
+		for ( var i = stride, e = stride + stride; i !== e; ++ i ) {
+
+			if ( buffer[ i ] !== buffer[ i + stride ] ) {
+
+				// value has changed -> update scene graph
+
+				binding.setValue( buffer, offset );
+				break;
 
 			}
 
 		}
 
-	} );
+	};
+
+
+	/**
+		 * Remembers the state of the bound property and copy it to both accus.
+		 */
+	PropertyMixer.prototype.saveOriginalState = function saveOriginalState () {
+
+		var binding = this.binding;
+
+		var buffer = this.buffer,
+			stride = this.valueSize,
+
+			originalValueOffset = stride * this._origIndex;
+
+		binding.getValue( buffer, originalValueOffset );
+
+		// accu[0..1] := orig -- initially detect changes against the original
+		for ( var i = stride, e = originalValueOffset; i !== e; ++ i ) {
+
+			buffer[ i ] = buffer[ originalValueOffset + ( i % stride ) ];
+
+		}
+
+		// Add to identity for additive
+		this._setIdentity();
+
+		this.cumulativeWeight = 0;
+		this.cumulativeWeightAdditive = 0;
+
+	};
+
+	/**
+		 * Applies the state previously taken via {@link PropertyMixer#saveOriginalState} to the binding.
+		 */
+	PropertyMixer.prototype.restoreOriginalState = function restoreOriginalState () {
+
+		var originalValueOffset = this.valueSize * 3;
+		this.binding.setValue( this.buffer, originalValueOffset );
+
+	};
+
+	// internals
+
+	PropertyMixer.prototype._setAdditiveIdentityNumeric = function _setAdditiveIdentityNumeric () {
+
+		var startIndex = this._addIndex * this.valueSize;
+		var endIndex = startIndex + this.valueSize;
+
+		for ( var i = startIndex; i < endIndex; i ++ ) {
+
+			this.buffer[ i ] = 0;
+
+		}
+
+	};
+
+	PropertyMixer.prototype._setAdditiveIdentityQuaternion = function _setAdditiveIdentityQuaternion () {
+
+		this._setAdditiveIdentityNumeric();
+		this.buffer[ this._addIndex * this.valueSize + 3 ] = 1;
+
+	};
+
+	PropertyMixer.prototype._setAdditiveIdentityOther = function _setAdditiveIdentityOther () {
+
+		var startIndex = this._origIndex * this.valueSize;
+		var targetIndex = this._addIndex * this.valueSize;
+
+		for ( var i = 0; i < this.valueSize; i ++ ) {
+
+			this.buffer[ targetIndex + i ] = this.buffer[ startIndex + i ];
+
+		}
+
+	};
+
+
+	// mix functions
+
+	PropertyMixer.prototype._select = function _select ( buffer, dstOffset, srcOffset, t, stride ) {
+
+		if ( t >= 0.5 ) {
+
+			for ( var i = 0; i !== stride; ++ i ) {
+
+				buffer[ dstOffset + i ] = buffer[ srcOffset + i ];
+
+			}
+
+		}
+
+	};
+
+	PropertyMixer.prototype._slerp = function _slerp ( buffer, dstOffset, srcOffset, t ) {
+
+		Quaternion.slerpFlat( buffer, dstOffset, buffer, dstOffset, buffer, srcOffset, t );
+
+	};
+
+	PropertyMixer.prototype._slerpAdditive = function _slerpAdditive ( buffer, dstOffset, srcOffset, t, stride ) {
+
+		var workOffset = this._workIndex * stride;
+
+		// Store result in intermediate buffer offset
+		Quaternion.multiplyQuaternionsFlat( buffer, workOffset, buffer, dstOffset, buffer, srcOffset );
+
+		// Slerp to the intermediate result
+		Quaternion.slerpFlat( buffer, dstOffset, buffer, dstOffset, buffer, workOffset, t );
+
+	};
+
+	PropertyMixer.prototype._lerp = function _lerp ( buffer, dstOffset, srcOffset, t, stride ) {
+
+		var s = 1 - t;
+
+		for ( var i = 0; i !== stride; ++ i ) {
+
+			var j = dstOffset + i;
+
+			buffer[ j ] = buffer[ j ] * s + buffer[ srcOffset + i ] * t;
+
+		}
+
+	};
+
+	PropertyMixer.prototype._lerpAdditive = function _lerpAdditive ( buffer, dstOffset, srcOffset, t, stride ) {
+
+		for ( var i = 0; i !== stride; ++ i ) {
+
+			var j = dstOffset + i;
+
+			buffer[ j ] = buffer[ j ] + buffer[ srcOffset + i ] * t;
+
+		}
+
+	};
 
 	/**
 	 *
@@ -43684,22 +46411,28 @@
 
 	} );
 
-	/**
-	 *
-	 * Action provided by AnimationMixer for scheduling clip playback on specific
-	 * objects.
-	 *
-	 * @author Ben Houston / http://clara.io/
-	 * @author David Sarno / http://lighthaus.us/
-	 * @author tschw
-	 *
-	 */
+	// backport from r185: 构造函数第 4 参 blendMode, _update 内按 blendMode 分派
 
-	function AnimationAction( mixer, clip, localRoot ) {
+	/**
+	 * An instance of `AnimationAction` schedules the playback of an animation which is
+	 * stored in {@link AnimationClip}.
+	 */
+	var AnimationAction = function AnimationAction( mixer, clip, localRoot, blendMode ) {
+		if ( localRoot === void 0 ) localRoot = null;
+		if ( blendMode === void 0 ) blendMode = clip.blendMode;
+
 
 		this._mixer = mixer;
 		this._clip = clip;
-		this._localRoot = localRoot || null;
+		this._localRoot = localRoot;
+
+		/**
+			 * Defines how the animation is blended/combined when two or more animations
+			 * are simultaneously played.
+			 *
+			 * @type {(NormalAnimationBlendMode|AdditiveAnimationBlendMode)}
+			 */
+		this.blendMode = blendMode;
 
 		var tracks = clip.tracks,
 			nTracks = tracks.length,
@@ -43729,8 +46462,15 @@
 		this._byClipCacheIndex = null; // for the memory manager
 
 		this._timeScaleInterpolant = null;
+		this._restoreTimeScale = null;
 		this._weightInterpolant = null;
 
+		/**
+			 * The loop mode, set via {@link AnimationAction#setLoop}.
+			 *
+			 * @type {(LoopRepeat|LoopOnce|LoopPingPong)}
+			 * @default LoopRepeat
+			 */
 		this.loop = LoopRepeat;
 		this._loopCount = - 1;
 
@@ -43738,362 +46478,596 @@
 		// it's set back to 'null' upon start of the action
 		this._startTime = null;
 
-		// scaled local time of the action
-		// gets clamped or wrapped to 0..clip.duration according to loop
+		/**
+			 * The local time of this action (in seconds, starting with `0`).
+			 *
+			 * The value gets clamped or wrapped to `[0,clip.duration]` (according to the
+			 * loop state).
+			 *
+			 * @type {number}
+			 * @default Infinity
+			 */
 		this.time = 0;
 
+		/**
+			 * Scaling factor for the {@link AnimationAction#time}. A value of `0` causes the
+			 * animation to pause. Negative values cause the animation to play backwards.
+			 *
+			 * @type {number}
+			 * @default 1
+			 */
 		this.timeScale = 1;
 		this._effectiveTimeScale = 1;
 
+		/**
+			 * The degree of influence of this action (in the interval `[0, 1]`). Values
+			 * between `0` (no impact) and `1` (full impact) can be used to blend between
+			 * several actions.
+			 *
+			 * @type {number}
+			 * @default 1
+			 */
 		this.weight = 1;
 		this._effectiveWeight = 1;
 
-		this.repetitions = Infinity; // no. of repetitions when looping
+		/**
+			 * The number of repetitions of the performed clip over the course of this action.
+			 * Can be set via {@link AnimationAction#setLoop}.
+			 *
+			 * Setting this number has no effect if {@link AnimationAction#loop} is set to
+			 * `THREE:LoopOnce`.
+			 *
+			 * @type {number}
+			 * @default Infinity
+			 */
+		this.repetitions = Infinity;
+
+		/**
+			 * If set to `true`, the playback of the action is paused.
+			 *
+			 * @type {boolean}
+			 * @default false
+			 */
+		this.paused = false;
+
+		/**
+			 * If set to `false`, the action is disabled so it has no impact.
+			 *
+			 * When the action is re-enabled, the animation continues from its current
+			 * time (setting `enabled` to `false` doesn't reset the action).
+			 *
+			 * @type {boolean}
+			 * @default true
+			 */
+		this.enabled = true;
+
+		/**
+			 * If set to true the animation will automatically be paused on its last frame.
+			 *
+			 * If set to false, {@link AnimationAction#enabled} will automatically be switched
+			 * to `false` when the last loop of the action has finished, so that this action has
+			 * no further impact.
+			 *
+			 * Note: This member has no impact if the action is interrupted (it
+			 * has only an effect if its last loop has really finished).
+			 *
+			 * @type {boolean}
+			 * @default false
+			 */
+		this.clampWhenFinished = false;
+
+		/**
+			 * Enables smooth interpolation without separate clips for start, loop and end.
+			 *
+			 * @type {boolean}
+			 * @default true
+			 */
+		this.zeroSlopeAtStart = true;
+
+		/**
+			 * Enables smooth interpolation without separate clips for start, loop and end.
+			 *
+			 * @type {boolean}
+			 * @default true
+			 */
+		this.zeroSlopeAtEnd = true;
+
+	};
+
+	/**
+		 * Starts the playback of the animation.
+		 *
+		 * @return {AnimationAction} A reference to this animation action.
+		 */
+	AnimationAction.prototype.play = function play () {
+
+		this._mixer._activateAction( this );
+
+		return this;
+
+	};
+
+	/**
+		 * Stops the playback of the animation.
+		 *
+		 * @return {AnimationAction} A reference to this animation action.
+		 */
+	AnimationAction.prototype.stop = function stop () {
+
+		this._mixer._deactivateAction( this );
+
+		return this.reset();
+
+	};
+
+	/**
+		 * Resets the playback of the animation.
+		 *
+		 * @return {AnimationAction} A reference to this animation action.
+		 */
+	AnimationAction.prototype.reset = function reset () {
+
+		this.paused = false;
+		this.enabled = true;
+
+		this.time = 0; // restart clip
+		this._loopCount = - 1;// forget previous loops
+		this._startTime = null;// forget scheduling
 
-		this.paused = false; // true -> zero effective time scale
-		this.enabled = true; // false -> zero effective weight
+		return this.stopFading().stopWarping();
 
-		this.clampWhenFinished = false;// keep feeding the last frame?
+	};
 
-		this.zeroSlopeAtStart = true;// for smooth interpolation w/o separate
-		this.zeroSlopeAtEnd = true;// clips for start, loop and end
+	/**
+		 * Returns `true` if the animation is running.
+		 *
+		 * @return {boolean} Whether the animation is running or not.
+		 */
+	AnimationAction.prototype.isRunning = function isRunning () {
 
-	}
+		return this.enabled && ! this.paused && this.timeScale !== 0 &&
+			this._startTime === null && this._mixer._isActiveAction( this );
 
-	Object.assign( AnimationAction.prototype, {
+	};
 
-		// State & Scheduling
+	/**
+		 * Returns `true` when {@link AnimationAction#play} has been called.
+		 *
+		 * @return {boolean} Whether the animation is scheduled or not.
+		 */
+	AnimationAction.prototype.isScheduled = function isScheduled () {
+
+		return this._mixer._isActiveAction( this );
+
+	};
+
+	/**
+		 * Defines the time when the animation should start.
+		 *
+		 * @param {number} time - The start time in seconds.
+		 * @return {AnimationAction} A reference to this animation action.
+		 */
+	AnimationAction.prototype.startAt = function startAt ( time ) {
 
-		play: function () {
+		this._startTime = time;
 
-			this._mixer._activateAction( this );
+		return this;
 
-			return this;
+	};
 
-		},
+	/**
+		 * Configures the loop settings for this action.
+		 *
+		 * @param {(LoopRepeat|LoopOnce|LoopPingPong)} mode - The loop mode.
+		 * @param {number} repetitions - The number of repetitions.
+		 * @return {AnimationAction} A reference to this animation action.
+		 */
+	AnimationAction.prototype.setLoop = function setLoop ( mode, repetitions ) {
 
-		stop: function () {
+		this.loop = mode;
+		this.repetitions = repetitions;
 
-			this._mixer._deactivateAction( this );
+		return this;
 
-			return this.reset();
+	};
 
-		},
+	/**
+		 * Sets the effective weight of this action.
+		 *
+		 * An action has no effect and thus an effective weight of zero when the
+		 * action is disabled.
+		 *
+		 * @param {number} weight - The weight to set.
+		 * @return {AnimationAction} A reference to this animation action.
+		 */
+	AnimationAction.prototype.setEffectiveWeight = function setEffectiveWeight ( weight ) {
 
-		reset: function () {
+		this.weight = weight;
 
-			this.paused = false;
-			this.enabled = true;
+		// note: same logic as when updated at runtime
+		this._effectiveWeight = this.enabled ? weight : 0;
 
-			this.time = 0; // restart clip
-			this._loopCount = - 1;// forget previous loops
-			this._startTime = null;// forget scheduling
+		return this.stopFading();
 
-			return this.stopFading().stopWarping();
+	};
 
-		},
+	/**
+		 * Returns the effective weight of this action.
+		 *
+		 * @return {number} The effective weight.
+		 */
+	AnimationAction.prototype.getEffectiveWeight = function getEffectiveWeight () {
 
-		isRunning: function () {
+		return this._effectiveWeight;
 
-			return this.enabled && ! this.paused && this.timeScale !== 0 &&
-				this._startTime === null && this._mixer._isActiveAction( this );
+	};
 
-		},
+	/**
+		 * Fades the animation in by increasing its weight gradually from `0` to `1`,
+		 * within the passed time interval.
+		 *
+		 * @param {number} duration - The duration of the fade.
+		 * @return {AnimationAction} A reference to this animation action.
+		 */
+	AnimationAction.prototype.fadeIn = function fadeIn ( duration ) {
 
-		// return true when play has been called
-		isScheduled: function () {
+		return this._scheduleFading( duration, 0, 1 );
 
-			return this._mixer._isActiveAction( this );
+	};
 
-		},
+	/**
+		 * Fades the animation out by decreasing its weight gradually from `1` to `0`,
+		 * within the passed time interval.
+		 *
+		 * @param {number} duration - The duration of the fade.
+		 * @return {AnimationAction} A reference to this animation action.
+		 */
+	AnimationAction.prototype.fadeOut = function fadeOut ( duration ) {
 
-		startAt: function ( time ) {
+		return this._scheduleFading( duration, 1, 0 );
 
-			this._startTime = time;
+	};
 
-			return this;
+	/**
+		 * Causes this action to fade in and the given action to fade out,
+		 * within the passed time interval.
+		 *
+		 * @param {AnimationAction} fadeOutAction - The animation action to fade out.
+		 * @param {number} duration - The duration of the fade.
+		 * @param {boolean} [warp=false] - Whether warping should be used or not.
+		 * @return {AnimationAction} A reference to this animation action.
+		 */
+	AnimationAction.prototype.crossFadeFrom = function crossFadeFrom ( fadeOutAction, duration, warp ) {
+			if ( warp === void 0 ) warp = false;
 
-		},
 
-		setLoop: function ( mode, repetitions ) {
+		fadeOutAction.fadeOut( duration );
+		this.fadeIn( duration );
 
-			this.loop = mode;
-			this.repetitions = repetitions;
+		if ( warp === true ) {
 
-			return this;
+			var fadeInDuration = this._clip.duration,
+				fadeOutDuration = fadeOutAction._clip.duration,
 
-		},
+				startEndRatio = fadeOutDuration / fadeInDuration,
+				endStartRatio = fadeInDuration / fadeOutDuration;
 
-		// Weight
 
-		// set the weight stopping any scheduled fading
-		// although .enabled = false yields an effective weight of zero, this
-		// method does *not* change .enabled, because it would be confusing
-		setEffectiveWeight: function ( weight ) {
+			fadeOutAction._restoreTimeScale = fadeOutAction.timeScale;
+			this._restoreTimeScale = this.timeScale;
 
-			this.weight = weight;
+			fadeOutAction.warp( 1.0, startEndRatio, duration );
+			this.warp( endStartRatio, 1.0, duration );
 
-			// note: same logic as when updated at runtime
-			this._effectiveWeight = this.enabled ? weight : 0;
+		}
 
-			return this.stopFading();
+		return this;
 
-		},
+	};
 
-		// return the weight considering fading and .enabled
-		getEffectiveWeight: function () {
+	/**
+		 * Causes this action to fade out and the given action to fade in,
+		 * within the passed time interval.
+		 *
+		 * @param {AnimationAction} fadeInAction - The animation action to fade in.
+		 * @param {number} duration - The duration of the fade.
+		 * @param {boolean} [warp=false] - Whether warping should be used or not.
+		 * @return {AnimationAction} A reference to this animation action.
+		 */
+	AnimationAction.prototype.crossFadeTo = function crossFadeTo ( fadeInAction, duration, warp ) {
+			if ( warp === void 0 ) warp = false;
 
-			return this._effectiveWeight;
 
-		},
+		return fadeInAction.crossFadeFrom( this, duration, warp );
 
-		fadeIn: function ( duration ) {
+	};
 
-			return this._scheduleFading( duration, 0, 1 );
+	/**
+		 * Stops any fading which is applied to this action.
+		 *
+		 * @return {AnimationAction} A reference to this animation action.
+		 */
+	AnimationAction.prototype.stopFading = function stopFading () {
 
-		},
+		var weightInterpolant = this._weightInterpolant;
 
-		fadeOut: function ( duration ) {
+		if ( weightInterpolant !== null ) {
 
-			return this._scheduleFading( duration, 1, 0 );
+			this._weightInterpolant = null;
+			this._mixer._takeBackControlInterpolant( weightInterpolant );
 
-		},
+		}
 
-		crossFadeFrom: function ( fadeOutAction, duration, warp ) {
+		return this;
 
-			fadeOutAction.fadeOut( duration );
-			this.fadeIn( duration );
+	};
 
-			if ( warp ) {
+	/**
+		 * Sets the effective time scale of this action.
+		 *
+		 * An action has no effect and thus an effective time scale of zero when the
+		 * action is paused.
+		 *
+		 * @param {number} timeScale - The time scale to set.
+		 * @return {AnimationAction} A reference to this animation action.
+		 */
+	AnimationAction.prototype.setEffectiveTimeScale = function setEffectiveTimeScale ( timeScale ) {
 
-				var fadeInDuration = this._clip.duration,
-					fadeOutDuration = fadeOutAction._clip.duration,
+		this.timeScale = timeScale;
+		this._effectiveTimeScale = this.paused ? 0 : timeScale;
 
-					startEndRatio = fadeOutDuration / fadeInDuration,
-					endStartRatio = fadeInDuration / fadeOutDuration;
+		return this.stopWarping();
 
-				fadeOutAction.warp( 1.0, startEndRatio, duration );
-				this.warp( endStartRatio, 1.0, duration );
+	};
 
-			}
+	/**
+		 * Returns the effective time scale of this action.
+		 *
+		 * @return {number} The effective time scale.
+		 */
+	AnimationAction.prototype.getEffectiveTimeScale = function getEffectiveTimeScale () {
 
-			return this;
+		return this._effectiveTimeScale;
 
-		},
+	};
 
-		crossFadeTo: function ( fadeInAction, duration, warp ) {
+	/**
+		 * Sets the duration for a single loop of this action.
+		 *
+		 * @param {number} duration - The duration to set.
+		 * @return {AnimationAction} A reference to this animation action.
+		 */
+	AnimationAction.prototype.setDuration = function setDuration ( duration ) {
 
-			return fadeInAction.crossFadeFrom( this, duration, warp );
+		this.timeScale = this._clip.duration / duration;
 
-		},
+		return this.stopWarping();
 
-		stopFading: function () {
+	};
 
-			var weightInterpolant = this._weightInterpolant;
+	/**
+		 * Synchronizes this action with the passed other action.
+		 *
+		 * @param {AnimationAction} action - The action to sync with.
+		 * @return {AnimationAction} A reference to this animation action.
+		 */
+	AnimationAction.prototype.syncWith = function syncWith ( action ) {
 
-			if ( weightInterpolant !== null ) {
+		this.time = action.time;
+		this.timeScale = action.timeScale;
 
-				this._weightInterpolant = null;
-				this._mixer._takeBackControlInterpolant( weightInterpolant );
+		return this.stopWarping();
 
-			}
+	};
 
-			return this;
+	/**
+		 * Decelerates this animation's speed to `0` within the passed time interval.
+		 *
+		 * @param {number} duration - The duration.
+		 * @return {AnimationAction} A reference to this animation action.
+		 */
+	AnimationAction.prototype.halt = function halt ( duration ) {
 
-		},
+		return this.warp( this._effectiveTimeScale, 0, duration );
 
-		// Time Scale Control
+	};
 
-		// set the time scale stopping any scheduled warping
-		// although .paused = true yields an effective time scale of zero, this
-		// method does *not* change .paused, because it would be confusing
-		setEffectiveTimeScale: function ( timeScale ) {
+	/**
+		 * Changes the playback speed, within the passed time interval, by modifying
+		 * {@link AnimationAction#timeScale} gradually from `startTimeScale` to
+		 * `endTimeScale`.
+		 *
+		 * @param {number} startTimeScale - The start time scale.
+		 * @param {number} endTimeScale - The end time scale.
+		 * @param {number} duration - The duration.
+		 * @return {AnimationAction} A reference to this animation action.
+		 */
+	AnimationAction.prototype.warp = function warp ( startTimeScale, endTimeScale, duration ) {
 
-			this.timeScale = timeScale;
-			this._effectiveTimeScale = this.paused ? 0 : timeScale;
+		var mixer = this._mixer,
+			now = mixer.time,
+			timeScale = this.timeScale;
 
-			return this.stopWarping();
+		var interpolant = this._timeScaleInterpolant;
 
-		},
+		if ( interpolant === null ) {
 
-		// return the time scale considering warping and .paused
-		getEffectiveTimeScale: function () {
+			interpolant = mixer._lendControlInterpolant();
+			this._timeScaleInterpolant = interpolant;
 
-			return this._effectiveTimeScale;
+		}
 
-		},
+		var times = interpolant.parameterPositions,
+			values = interpolant.sampleValues;
 
-		setDuration: function ( duration ) {
+		times[ 0 ] = now;
+		times[ 1 ] = now + duration;
 
-			this.timeScale = this._clip.duration / duration;
+		values[ 0 ] = startTimeScale / timeScale;
+		values[ 1 ] = endTimeScale / timeScale;
 
-			return this.stopWarping();
+		return this;
 
-		},
+	};
 
-		syncWith: function ( action ) {
+	/**
+		 * Stops any scheduled warping which is applied to this action.
+		 *
+		 * @return {AnimationAction} A reference to this animation action.
+		 */
+	AnimationAction.prototype.stopWarping = function stopWarping () {
 
-			this.time = action.time;
-			this.timeScale = action.timeScale;
+		var timeScaleInterpolant = this._timeScaleInterpolant;
 
-			return this.stopWarping();
+		if ( timeScaleInterpolant !== null ) {
 
-		},
+			this._timeScaleInterpolant = null;
+			this._mixer._takeBackControlInterpolant( timeScaleInterpolant );
 
-		halt: function ( duration ) {
+		}
 
-			return this.warp( this._effectiveTimeScale, 0, duration );
+		this._restoreTimeScale = null;
 
-		},
+		return this;
 
-		warp: function ( startTimeScale, endTimeScale, duration ) {
+	};
 
-			var mixer = this._mixer, now = mixer.time,
-				interpolant = this._timeScaleInterpolant,
+	/**
+		 * Returns the animation mixer of this animation action.
+		 *
+		 * @return {AnimationMixer} The animation mixer.
+		 */
+	AnimationAction.prototype.getMixer = function getMixer () {
 
-				timeScale = this.timeScale;
+		return this._mixer;
 
-			if ( interpolant === null ) {
+	};
 
-				interpolant = mixer._lendControlInterpolant();
-				this._timeScaleInterpolant = interpolant;
+	/**
+		 * Returns the animation clip of this animation action.
+		 *
+		 * @return {AnimationClip} The animation clip.
+		 */
+	AnimationAction.prototype.getClip = function getClip () {
 
-			}
+		return this._clip;
 
-			var times = interpolant.parameterPositions,
-				values = interpolant.sampleValues;
+	};
 
-			times[ 0 ] = now;
-			times[ 1 ] = now + duration;
+	/**
+		 * Returns the root object of this animation action.
+		 *
+		 * @return {Object3D} The root object.
+		 */
+	AnimationAction.prototype.getRoot = function getRoot () {
 
-			values[ 0 ] = startTimeScale / timeScale;
-			values[ 1 ] = endTimeScale / timeScale;
+		return this._localRoot || this._mixer._root;
 
-			return this;
+	};
 
-		},
+	// Internal
 
-		stopWarping: function () {
+	AnimationAction.prototype._update = function _update ( time, deltaTime, timeDirection, accuIndex ) {
 
-			var timeScaleInterpolant = this._timeScaleInterpolant;
+		// called by the mixer
 
-			if ( timeScaleInterpolant !== null ) {
+		if ( ! this.enabled ) {
 
-				this._timeScaleInterpolant = null;
-				this._mixer._takeBackControlInterpolant( timeScaleInterpolant );
+			// call ._updateWeight() to update ._effectiveWeight
 
-			}
+			this._updateWeight( time );
+			return;
 
-			return this;
+		}
 
-		},
+		var startTime = this._startTime;
 
-		// Object Accessors
+		if ( startTime !== null ) {
 
-		getMixer: function () {
+			// check for scheduled start of action
 
-			return this._mixer;
+			var timeRunning = ( time - startTime ) * timeDirection;
+			if ( timeRunning < 0 || timeDirection === 0 ) {
 
-		},
+				deltaTime = 0;
 
-		getClip: function () {
+			} else {
 
-			return this._clip;
-
-		},
-
-		getRoot: function () {
-
-			return this._localRoot || this._mixer._root;
-
-		},
-
-		// Interna
-
-		_update: function ( time, deltaTime, timeDirection, accuIndex ) {
-
-			// called by the mixer
-
-			if ( ! this.enabled ) {
-
-				// call ._updateWeight() to update ._effectiveWeight
-
-				this._updateWeight( time );
-				return;
-
-			}
-
-			var startTime = this._startTime;
-
-			if ( startTime !== null ) {
-
-				// check for scheduled start of action
-
-				var timeRunning = ( time - startTime ) * timeDirection;
-				if ( timeRunning < 0 || timeDirection === 0 ) {
-
-					return; // yet to come / don't decide when delta = 0
-
-				}
-
-				// start
 
 				this._startTime = null; // unschedule
 				deltaTime = timeDirection * timeRunning;
 
 			}
 
-			// apply time scale and advance time
+		}
 
-			deltaTime *= this._updateTimeScale( time );
-			var clipTime = this._updateTime( deltaTime );
+		// apply time scale and advance time
 
-			// note: _updateTime may disable the action resulting in
-			// an effective weight of 0
+		deltaTime *= this._updateTimeScale( time );
+		var clipTime = this._updateTime( deltaTime );
 
-			var weight = this._updateWeight( time );
+		// note: _updateTime may disable the action resulting in
+		// an effective weight of 0
 
-			if ( weight > 0 ) {
+		var weight = this._updateWeight( time );
 
-				var interpolants = this._interpolants;
-				var propertyMixers = this._propertyBindings;
+		if ( weight > 0 ) {
 
-				for ( var j = 0, m = interpolants.length; j !== m; ++ j ) {
+			var interpolants = this._interpolants;
+			var propertyMixers = this._propertyBindings;
 
-					interpolants[ j ].evaluate( clipTime );
-					propertyMixers[ j ].accumulate( accuIndex, weight );
+			switch ( this.blendMode ) {
 
-				}
+				case AdditiveAnimationBlendMode:
+
+					for ( var j = 0, m = interpolants.length; j !== m; ++ j ) {
+
+						interpolants[ j ].evaluate( clipTime );
+						propertyMixers[ j ].accumulateAdditive( weight );
+
+					}
+
+					break;
+
+				case NormalAnimationBlendMode:
+				default:
+
+					for ( var j$1 = 0, m$1 = interpolants.length; j$1 !== m$1; ++ j$1 ) {
+
+						interpolants[ j$1 ].evaluate( clipTime );
+						propertyMixers[ j$1 ].accumulate( accuIndex, weight );
+
+					}
 
 			}
 
-		},
+		}
 
-		_updateWeight: function ( time ) {
+	};
 
-			var weight = 0;
+	AnimationAction.prototype._updateWeight = function _updateWeight ( time ) {
 
-			if ( this.enabled ) {
+		var weight = 0;
 
-				weight = this.weight;
-				var interpolant = this._weightInterpolant;
+		if ( this.enabled ) {
 
-				if ( interpolant !== null ) {
+			weight = this.weight;
+			var interpolant = this._weightInterpolant;
 
-					var interpolantValue = interpolant.evaluate( time )[ 0 ];
+			if ( interpolant !== null ) {
 
-					weight *= interpolantValue;
+				var interpolantValue = interpolant.evaluate( time )[ 0 ];
 
-					if ( time > interpolant.parameterPositions[ 1 ] ) {
+				weight *= interpolantValue;
 
-						this.stopFading();
+				if ( time > interpolant.parameterPositions[ 1 ] ) {
 
-						if ( interpolantValue === 0 ) {
+					this.stopFading();
 
-							// faded out, disable
-							this.enabled = false;
+					if ( interpolantValue === 0 ) {
 
-						}
+						// faded out, disable
+						this.enabled = false;
 
 					}
 
@@ -44101,300 +47075,328 @@
 
 			}
 
-			this._effectiveWeight = weight;
-			return weight;
+		}
 
-		},
+		this._effectiveWeight = weight;
+		return weight;
 
-		_updateTimeScale: function ( time ) {
+	};
 
-			var timeScale = 0;
+	AnimationAction.prototype._updateTimeScale = function _updateTimeScale ( time ) {
 
-			if ( ! this.paused ) {
+		var timeScale = 0;
 
-				timeScale = this.timeScale;
+		if ( ! this.paused ) {
 
-				var interpolant = this._timeScaleInterpolant;
+			timeScale = this.timeScale;
 
-				if ( interpolant !== null ) {
+			var interpolant = this._timeScaleInterpolant;
 
-					var interpolantValue = interpolant.evaluate( time )[ 0 ];
+			if ( interpolant !== null ) {
 
-					timeScale *= interpolantValue;
+				var interpolantValue = interpolant.evaluate( time )[ 0 ];
 
-					if ( time > interpolant.parameterPositions[ 1 ] ) {
+				timeScale *= interpolantValue;
 
-						this.stopWarping();
+				if ( time > interpolant.parameterPositions[ 1 ] ) {
 
-						if ( timeScale === 0 ) {
+					if ( timeScale === 0 ) {
 
-							// motion has halted, pause
-							this.paused = true;
-
-						} else {
-
-							// warp done - apply final time scale
-							this.timeScale = timeScale;
-
-						}
-
-					}
-
-				}
-
-			}
-
-			this._effectiveTimeScale = timeScale;
-			return timeScale;
-
-		},
-
-		_updateTime: function ( deltaTime ) {
-
-			var time = this.time + deltaTime;
-			var duration = this._clip.duration;
-			var loop = this.loop;
-			var loopCount = this._loopCount;
-
-			var pingPong = ( loop === LoopPingPong );
-
-			if ( deltaTime === 0 ) {
-
-				if ( loopCount === - 1 ) { return time; }
-
-				return ( pingPong && ( loopCount & 1 ) === 1 ) ? duration - time : time;
-
-			}
-
-			if ( loop === LoopOnce ) {
-
-				if ( loopCount === - 1 ) {
-
-					// just started
-
-					this._loopCount = 0;
-					this._setEndings( true, true, false );
-
-				}
-
-				handle_stop: {
-
-					if ( time >= duration ) {
-
-						time = duration;
-
-					} else if ( time < 0 ) {
-
-						time = 0;
+						// motion has halted, pause
+						this.paused = true;
 
 					} else {
 
-						this.time = time;
+						if ( this._restoreTimeScale !== null ) {
 
-						break handle_stop;
+							timeScale = this._restoreTimeScale;
+
+						}
+
+						// warp done - apply final time scale
+						this.timeScale = timeScale;
 
 					}
 
+					this.stopWarping();
+
+				}
+
+			}
+
+		}
+
+		this._effectiveTimeScale = timeScale;
+		return timeScale;
+
+	};
+
+	AnimationAction.prototype._updateTime = function _updateTime ( deltaTime ) {
+
+		var duration = this._clip.duration;
+		var loop = this.loop;
+
+		var time = this.time + deltaTime;
+		var loopCount = this._loopCount;
+
+		var pingPong = ( loop === LoopPingPong );
+
+		if ( deltaTime === 0 ) {
+
+			if ( loopCount === - 1 ) { return time; }
+
+			return ( pingPong && ( loopCount & 1 ) === 1 ) ? duration - time : time;
+
+		}
+
+		if ( loop === LoopOnce ) {
+
+			if ( loopCount === - 1 ) {
+
+				// just started
+
+				this._loopCount = 0;
+				this._setEndings( true, true, false );
+
+			}
+
+			handle_stop: {
+
+				if ( time >= duration ) {
+
+					time = duration;
+
+				} else if ( time < 0 ) {
+
+					time = 0;
+
+				} else {
+
+					this.time = time;
+
+					break handle_stop;
+
+				}
+
+				if ( this.clampWhenFinished ) { this.paused = true; }
+				else { this.enabled = false; }
+
+				this.time = time;
+
+				this._mixer.dispatchEvent( {
+					type: 'finished', action: this,
+					direction: deltaTime < 0 ? - 1 : 1
+				} );
+
+			}
+
+		} else { // repetitive Repeat or PingPong
+
+			if ( loopCount === - 1 ) {
+
+				// just started
+
+				if ( deltaTime >= 0 ) {
+
+					loopCount = 0;
+
+					this._setEndings( true, this.repetitions === 0, pingPong );
+
+				} else {
+
+					// when looping in reverse direction, the initial
+					// transition through zero counts as a repetition,
+					// so leave loopCount at -1
+
+					this._setEndings( this.repetitions === 0, true, pingPong );
+
+				}
+
+			}
+
+			if ( time >= duration || time < 0 ) {
+
+				// wrap around
+
+				var loopDelta = Math.floor( time / duration ); // signed
+				time -= duration * loopDelta;
+
+				loopCount += Math.abs( loopDelta );
+
+				var pending = this.repetitions - loopCount;
+
+				if ( pending <= 0 ) {
+
+					// have to stop (switch state, clamp time, fire event)
+
 					if ( this.clampWhenFinished ) { this.paused = true; }
 					else { this.enabled = false; }
+
+					time = deltaTime > 0 ? duration : 0;
 
 					this.time = time;
 
 					this._mixer.dispatchEvent( {
 						type: 'finished', action: this,
-						direction: deltaTime < 0 ? - 1 : 1
+						direction: deltaTime > 0 ? 1 : - 1
+					} );
+
+				} else {
+
+					// keep running
+
+					if ( pending === 1 ) {
+
+						// entering the last round
+
+						var atStart = deltaTime < 0;
+						this._setEndings( atStart, ! atStart, pingPong );
+
+					} else {
+
+						this._setEndings( false, false, pingPong );
+
+					}
+
+					this._loopCount = loopCount;
+
+					this.time = time;
+
+					this._mixer.dispatchEvent( {
+						type: 'loop', action: this, loopDelta: loopDelta
 					} );
 
 				}
 
-			} else { // repetitive Repeat or PingPong
-
-				if ( loopCount === - 1 ) {
-
-					// just started
-
-					if ( deltaTime >= 0 ) {
-
-						loopCount = 0;
-
-						this._setEndings( true, this.repetitions === 0, pingPong );
-
-					} else {
-
-						// when looping in reverse direction, the initial
-						// transition through zero counts as a repetition,
-						// so leave loopCount at -1
-
-						this._setEndings( this.repetitions === 0, true, pingPong );
-
-					}
-
-				}
-
-				if ( time >= duration || time < 0 ) {
-
-					// wrap around
-
-					var loopDelta = Math.floor( time / duration ); // signed
-					time -= duration * loopDelta;
-
-					loopCount += Math.abs( loopDelta );
-
-					var pending = this.repetitions - loopCount;
-
-					if ( pending <= 0 ) {
-
-						// have to stop (switch state, clamp time, fire event)
-
-						if ( this.clampWhenFinished ) { this.paused = true; }
-						else { this.enabled = false; }
-
-						time = deltaTime > 0 ? duration : 0;
-
-						this.time = time;
-
-						this._mixer.dispatchEvent( {
-							type: 'finished', action: this,
-							direction: deltaTime > 0 ? 1 : - 1
-						} );
-
-					} else {
-
-						// keep running
-
-						if ( pending === 1 ) {
-
-							// entering the last round
-
-							var atStart = deltaTime < 0;
-							this._setEndings( atStart, ! atStart, pingPong );
-
-						} else {
-
-							this._setEndings( false, false, pingPong );
-
-						}
-
-						this._loopCount = loopCount;
-
-						this.time = time;
-
-						this._mixer.dispatchEvent( {
-							type: 'loop', action: this, loopDelta: loopDelta
-						} );
-
-					}
-
-				} else {
-
-					this.time = time;
-
-				}
-
-				if ( pingPong && ( loopCount & 1 ) === 1 ) {
-
-					// invert time for the "pong round"
-
-					return duration - time;
-
-				}
-
-			}
-
-			return time;
-
-		},
-
-		_setEndings: function ( atStart, atEnd, pingPong ) {
-
-			var settings = this._interpolantSettings;
-
-			if ( pingPong ) {
-
-				settings.endingStart = ZeroSlopeEnding;
-				settings.endingEnd = ZeroSlopeEnding;
-
 			} else {
 
-				// assuming for LoopOnce atStart == atEnd == true
-
-				if ( atStart ) {
-
-					settings.endingStart = this.zeroSlopeAtStart ? ZeroSlopeEnding : ZeroCurvatureEnding;
-
-				} else {
-
-					settings.endingStart = WrapAroundEnding;
-
-				}
-
-				if ( atEnd ) {
-
-					settings.endingEnd = this.zeroSlopeAtEnd ? ZeroSlopeEnding : ZeroCurvatureEnding;
-
-				} else {
-
-					settings.endingEnd 	 = WrapAroundEnding;
-
-				}
+				this._loopCount = loopCount;
+				this.time = time;
 
 			}
 
-		},
+			if ( pingPong && ( loopCount & 1 ) === 1 ) {
 
-		_scheduleFading: function ( duration, weightNow, weightThen ) {
+				// invert time for the "pong round"
 
-			var mixer = this._mixer, now = mixer.time,
-				interpolant = this._weightInterpolant;
-
-			if ( interpolant === null ) {
-
-				interpolant = mixer._lendControlInterpolant();
-				this._weightInterpolant = interpolant;
+				return duration - time;
 
 			}
-
-			var times = interpolant.parameterPositions,
-				values = interpolant.sampleValues;
-
-			times[ 0 ] = now;
-			values[ 0 ] = weightNow;
-			times[ 1 ] = now + duration;
-			values[ 1 ] = weightThen;
-
-			return this;
 
 		}
 
-	} );
+		return time;
+
+	};
+
+	AnimationAction.prototype._setEndings = function _setEndings ( atStart, atEnd, pingPong ) {
+
+		var settings = this._interpolantSettings;
+
+		if ( pingPong ) {
+
+			settings.endingStart = ZeroSlopeEnding;
+			settings.endingEnd = ZeroSlopeEnding;
+
+		} else {
+
+			// assuming for LoopOnce atStart == atEnd == true
+
+			if ( atStart ) {
+
+				settings.endingStart = this.zeroSlopeAtStart ? ZeroSlopeEnding : ZeroCurvatureEnding;
+
+			} else {
+
+				settings.endingStart = WrapAroundEnding;
+
+			}
+
+			if ( atEnd ) {
+
+				settings.endingEnd = this.zeroSlopeAtEnd ? ZeroSlopeEnding : ZeroCurvatureEnding;
+
+			} else {
+
+				settings.endingEnd = WrapAroundEnding;
+
+			}
+
+		}
+
+	};
+
+	AnimationAction.prototype._scheduleFading = function _scheduleFading ( duration, weightNow, weightThen ) {
+
+		var mixer = this._mixer, now = mixer.time;
+		var interpolant = this._weightInterpolant;
+
+		if ( interpolant === null ) {
+
+			interpolant = mixer._lendControlInterpolant();
+			this._weightInterpolant = interpolant;
+
+		}
+
+		var times = interpolant.parameterPositions,
+			values = interpolant.sampleValues;
+
+		times[ 0 ] = now;
+		values[ 0 ] = weightNow;
+		times[ 1 ] = now + duration;
+		values[ 1 ] = weightThen;
+
+		return this;
+
+	};
+
+	// backport from r185: clipAction(clip, root, blendMode) 透传 blendMode
+
+	var _controlInterpolantsResultBuffer = new Float32Array( 1 );
 
 	/**
-	 *
-	 * Player for AnimationClips.
-	 *
-	 *
-	 * @author Ben Houston / http://clara.io/
-	 * @author David Sarno / http://lighthaus.us/
-	 * @author tschw
+	 * `AnimationMixer` is a player for animations on a particular object in
+	 * the scene. When multiple objects in the scene are animated independently,
+	 * one `AnimationMixer` may be used for each object.
 	 */
+	var AnimationMixer = /*@__PURE__*/(function (EventDispatcher) {
+		function AnimationMixer( root ) {
 
-	function AnimationMixer( root ) {
+			EventDispatcher.call(this);
 
-		this._root = root;
-		this._initMemoryManager();
-		this._accuIndex = 0;
+			this._root = root;
+			this._initMemoryManager();
+			this._accuIndex = 0;
 
-		this.time = 0;
+			/**
+			 * The global mixer time (in seconds; starting with `0` on the mixer's creation).
+			 *
+			 * @type {number}
+			 * @default 0
+			 */
+			this.time = 0;
 
-		this.timeScale = 1.0;
+			/**
+			 * A scaling factor for the global time.
+			 *
+			 * Note: Setting this member to `0` and later back to `1` is a
+			 * possibility to pause/unpause all actions that are controlled by this
+			 * mixer.
+			 *
+			 * @type {number}
+			 * @default 1
+			 */
+			this.timeScale = 1.0;
 
-	}
+			// r110 适配: 删除 __THREE_DEVTOOLS__ 通知(小程序无 CustomEvent, r110 全库无此机制)
 
-	AnimationMixer.prototype = Object.assign( Object.create( EventDispatcher.prototype ), {
+		}
 
-		constructor: AnimationMixer,
+		if ( EventDispatcher ) AnimationMixer.__proto__ = EventDispatcher;
+		AnimationMixer.prototype = Object.create( EventDispatcher && EventDispatcher.prototype );
+		AnimationMixer.prototype.constructor = AnimationMixer;
 
-		_bindAction: function ( action, prototypeAction ) {
+		AnimationMixer.prototype._bindAction = function _bindAction ( action, prototypeAction ) {
 
 			var root = action._localRoot || this._root,
 				tracks = action._clip.tracks,
@@ -44402,8 +47404,9 @@
 				bindings = action._propertyBindings,
 				interpolants = action._interpolants,
 				rootUuid = root.uuid,
-				bindingsByRoot = this._bindingsByRootAndName,
-				bindingsByName = bindingsByRoot[ rootUuid ];
+				bindingsByRoot = this._bindingsByRootAndName;
+
+			var bindingsByName = bindingsByRoot[ rootUuid ];
 
 			if ( bindingsByName === undefined ) {
 
@@ -44415,11 +47418,13 @@
 			for ( var i = 0; i !== nTracks; ++ i ) {
 
 				var track = tracks[ i ],
-					trackName = track.name,
-					binding = bindingsByName[ trackName ];
+					trackName = track.name;
+
+				var binding = bindingsByName[ trackName ];
 
 				if ( binding !== undefined ) {
 
+					++ binding.referenceCount;
 					bindings[ i ] = binding;
 
 				} else {
@@ -44459,9 +47464,9 @@
 
 			}
 
-		},
+		};
 
-		_activateAction: function ( action ) {
+		AnimationMixer.prototype._activateAction = function _activateAction ( action ) {
 
 			if ( ! this._isActiveAction( action ) ) {
 
@@ -44501,9 +47506,9 @@
 
 			}
 
-		},
+		};
 
-		_deactivateAction: function ( action ) {
+		AnimationMixer.prototype._deactivateAction = function _deactivateAction ( action ) {
 
 			if ( this._isActiveAction( action ) ) {
 
@@ -44527,11 +47532,11 @@
 
 			}
 
-		},
+		};
 
 		// Memory manager
 
-		_initMemoryManager: function () {
+		AnimationMixer.prototype._initMemoryManager = function _initMemoryManager () {
 
 			this._actions = []; // 'nActiveActions' followed by inactive ones
 			this._nActiveActions = 0;
@@ -44596,22 +47601,23 @@
 
 			};
 
-		},
+		};
 
 		// Memory management for AnimationAction objects
 
-		_isActiveAction: function ( action ) {
+		AnimationMixer.prototype._isActiveAction = function _isActiveAction ( action ) {
 
 			var index = action._cacheIndex;
 			return index !== null && index < this._nActiveActions;
 
-		},
+		};
 
-		_addInactiveAction: function ( action, clipUuid, rootUuid ) {
+		AnimationMixer.prototype._addInactiveAction = function _addInactiveAction ( action, clipUuid, rootUuid ) {
 
 			var actions = this._actions,
-				actionsByClip = this._actionsByClip,
-				actionsForClip = actionsByClip[ clipUuid ];
+				actionsByClip = this._actionsByClip;
+
+			var actionsForClip = actionsByClip[ clipUuid ];
 
 			if ( actionsForClip === undefined ) {
 
@@ -44640,9 +47646,9 @@
 
 			actionsForClip.actionByRoot[ rootUuid ] = action;
 
-		},
+		};
 
-		_removeInactiveAction: function ( action ) {
+		AnimationMixer.prototype._removeInactiveAction = function _removeInactiveAction ( action ) {
 
 			var actions = this._actions,
 				lastInactiveAction = actions[ actions.length - 1 ],
@@ -44685,11 +47691,12 @@
 
 			this._removeInactiveBindingsForAction( action );
 
-		},
+		};
 
-		_removeInactiveBindingsForAction: function ( action ) {
+		AnimationMixer.prototype._removeInactiveBindingsForAction = function _removeInactiveBindingsForAction ( action ) {
 
 			var bindings = action._propertyBindings;
+
 			for ( var i = 0, n = bindings.length; i !== n; ++ i ) {
 
 				var binding = bindings[ i ];
@@ -44702,9 +47709,9 @@
 
 			}
 
-		},
+		};
 
-		_lendAction: function ( action ) {
+		AnimationMixer.prototype._lendAction = function _lendAction ( action ) {
 
 			// [ active actions |  inactive actions  ]
 			// [  active actions >| inactive actions ]
@@ -44725,9 +47732,9 @@
 			firstInactiveAction._cacheIndex = prevIndex;
 			actions[ prevIndex ] = firstInactiveAction;
 
-		},
+		};
 
-		_takeBackAction: function ( action ) {
+		AnimationMixer.prototype._takeBackAction = function _takeBackAction ( action ) {
 
 			// [  active actions  | inactive actions ]
 			// [ active actions |< inactive actions  ]
@@ -44748,16 +47755,16 @@
 			lastActiveAction._cacheIndex = prevIndex;
 			actions[ prevIndex ] = lastActiveAction;
 
-		},
+		};
 
 		// Memory management for PropertyMixer objects
 
-		_addInactiveBinding: function ( binding, rootUuid, trackName ) {
+		AnimationMixer.prototype._addInactiveBinding = function _addInactiveBinding ( binding, rootUuid, trackName ) {
 
 			var bindingsByRoot = this._bindingsByRootAndName,
-				bindingByName = bindingsByRoot[ rootUuid ],
-
 				bindings = this._bindings;
+
+			var bindingByName = bindingsByRoot[ rootUuid ];
 
 			if ( bindingByName === undefined ) {
 
@@ -44771,9 +47778,9 @@
 			binding._cacheIndex = bindings.length;
 			bindings.push( binding );
 
-		},
+		};
 
-		_removeInactiveBinding: function ( binding ) {
+		AnimationMixer.prototype._removeInactiveBinding = function _removeInactiveBinding ( binding ) {
 
 			var bindings = this._bindings,
 				propBinding = binding.binding,
@@ -44797,9 +47804,9 @@
 
 			}
 
-		},
+		};
 
-		_lendBinding: function ( binding ) {
+		AnimationMixer.prototype._lendBinding = function _lendBinding ( binding ) {
 
 			var bindings = this._bindings,
 				prevIndex = binding._cacheIndex,
@@ -44814,9 +47821,9 @@
 			firstInactiveBinding._cacheIndex = prevIndex;
 			bindings[ prevIndex ] = firstInactiveBinding;
 
-		},
+		};
 
-		_takeBackBinding: function ( binding ) {
+		AnimationMixer.prototype._takeBackBinding = function _takeBackBinding ( binding ) {
 
 			var bindings = this._bindings,
 				prevIndex = binding._cacheIndex,
@@ -44831,22 +47838,23 @@
 			lastActiveBinding._cacheIndex = prevIndex;
 			bindings[ prevIndex ] = lastActiveBinding;
 
-		},
+		};
 
 
 		// Memory management of Interpolants for weight and time scale
 
-		_lendControlInterpolant: function () {
+		AnimationMixer.prototype._lendControlInterpolant = function _lendControlInterpolant () {
 
 			var interpolants = this._controlInterpolants,
-				lastActiveIndex = this._nActiveControlInterpolants ++,
-				interpolant = interpolants[ lastActiveIndex ];
+				lastActiveIndex = this._nActiveControlInterpolants ++;
+
+			var interpolant = interpolants[ lastActiveIndex ];
 
 			if ( interpolant === undefined ) {
 
 				interpolant = new LinearInterpolant(
 					new Float32Array( 2 ), new Float32Array( 2 ),
-					1, this._controlInterpolantsResultBuffer );
+					1, _controlInterpolantsResultBuffer );
 
 				interpolant.__cacheIndex = lastActiveIndex;
 				interpolants[ lastActiveIndex ] = interpolant;
@@ -44855,9 +47863,9 @@
 
 			return interpolant;
 
-		},
+		};
 
-		_takeBackControlInterpolant: function ( interpolant ) {
+		AnimationMixer.prototype._takeBackControlInterpolant = function _takeBackControlInterpolant ( interpolant ) {
 
 			var interpolants = this._controlInterpolants,
 				prevIndex = interpolant.__cacheIndex,
@@ -44872,32 +47880,51 @@
 			lastActiveInterpolant.__cacheIndex = prevIndex;
 			interpolants[ prevIndex ] = lastActiveInterpolant;
 
-		},
+		};
 
-		_controlInterpolantsResultBuffer: new Float32Array( 1 ),
-
-		// return an action for a clip optionally using a custom root target
-		// object (this method allocates a lot of dynamic memory in case a
-		// previously unknown clip/root combination is specified)
-		clipAction: function ( clip, optionalRoot ) {
+		/**
+		 * Returns an instance of {@link AnimationAction} for the passed clip.
+		 *
+		 * If an action fitting the clip and root parameters doesn't yet exist, it
+		 * will be created by this method. Calling this method several times with the
+		 * same clip and root parameters always returns the same action.
+		 *
+		 * @param {AnimationClip|string} clip - An animation clip or alternatively the name of the animation clip.
+		 * @param {Object3D} [optionalRoot] - An alternative root object.
+		 * @param {(NormalAnimationBlendMode|AdditiveAnimationBlendMode)} [blendMode] - The blend mode.
+		 * @return {?AnimationAction} The animation action.
+		 */
+		AnimationMixer.prototype.clipAction = function clipAction ( clip, optionalRoot, blendMode ) {
 
 			var root = optionalRoot || this._root,
-				rootUuid = root.uuid,
+				rootUuid = root.uuid;
 
-				clipObject = typeof clip === 'string' ?
-					AnimationClip.findByName( root, clip ) : clip,
+			var clipObject = typeof clip === 'string' ? AnimationClip.findByName( root, clip ) : clip;
 
-				clipUuid = clipObject !== null ? clipObject.uuid : clip,
+			var clipUuid = clipObject !== null ? clipObject.uuid : clip;
 
-				actionsForClip = this._actionsByClip[ clipUuid ],
-				prototypeAction = null;
+			var actionsForClip = this._actionsByClip[ clipUuid ];
+			var prototypeAction = null;
+
+			if ( blendMode === undefined ) {
+
+				if ( clipObject !== null ) {
+
+					blendMode = clipObject.blendMode;
+
+				} else {
+
+					blendMode = NormalAnimationBlendMode;
+
+				}
+
+			}
 
 			if ( actionsForClip !== undefined ) {
 
-				var existingAction =
-						actionsForClip.actionByRoot[ rootUuid ];
+				var existingAction = actionsForClip.actionByRoot[ rootUuid ];
 
-				if ( existingAction !== undefined ) {
+				if ( existingAction !== undefined && existingAction.blendMode === blendMode ) {
 
 					return existingAction;
 
@@ -44917,7 +47944,7 @@
 			if ( clipObject === null ) { return null; }
 
 			// allocate all resources required to run it
-			var newAction = new AnimationAction( this, clipObject, optionalRoot );
+			var newAction = new AnimationAction( this, clipObject, optionalRoot, blendMode );
 
 			this._bindAction( newAction, prototypeAction );
 
@@ -44926,10 +47953,16 @@
 
 			return newAction;
 
-		},
+		};
 
-		// get an existing action
-		existingAction: function ( clip, optionalRoot ) {
+		/**
+		 * Returns an existing animation action for the passed clip.
+		 *
+		 * @param {AnimationClip|string} clip - An animation clip or alternatively the name of the animation clip.
+		 * @param {Object3D} [optionalRoot] - An alternative root object.
+		 * @return {?AnimationAction} The animation action. Returns `null` if no action was found.
+		 */
+		AnimationMixer.prototype.existingAction = function existingAction ( clip, optionalRoot ) {
 
 			var root = optionalRoot || this._root,
 				rootUuid = root.uuid,
@@ -44949,37 +47982,38 @@
 
 			return null;
 
-		},
+		};
 
-		// deactivates all previously scheduled actions
-		stopAllAction: function () {
+		/**
+		 * Deactivates all previously scheduled actions on this mixer.
+		 *
+		 * @return {AnimationMixer} A reference to this animation mixer.
+		 */
+		AnimationMixer.prototype.stopAllAction = function stopAllAction () {
 
 			var actions = this._actions,
-				nActions = this._nActiveActions,
-				bindings = this._bindings,
-				nBindings = this._nActiveBindings;
+				nActions = this._nActiveActions;
 
-			this._nActiveActions = 0;
-			this._nActiveBindings = 0;
+			for ( var i = nActions - 1; i >= 0; -- i ) {
 
-			for ( var i = 0; i !== nActions; ++ i ) {
-
-				actions[ i ].reset();
-
-			}
-
-			for ( var i = 0; i !== nBindings; ++ i ) {
-
-				bindings[ i ].useCount = 0;
+				actions[ i ].stop();
 
 			}
 
 			return this;
 
-		},
+		};
 
-		// advance the time and update apply the animation
-		update: function ( deltaTime ) {
+		/**
+		 * Advances the global mixer time and updates the animation.
+		 *
+		 * This is usually done in the render loop by passing the delta
+		 * time from {@link Clock} or {@link Timer}.
+		 *
+		 * @param {number} deltaTime - The delta time in seconds.
+		 * @return {AnimationMixer} A reference to this animation mixer.
+		 */
+		AnimationMixer.prototype.update = function update ( deltaTime ) {
 
 			deltaTime *= this.timeScale;
 
@@ -45006,18 +48040,26 @@
 			var bindings = this._bindings,
 				nBindings = this._nActiveBindings;
 
-			for ( var i = 0; i !== nBindings; ++ i ) {
+			for ( var i$1 = 0; i$1 !== nBindings; ++ i$1 ) {
 
-				bindings[ i ].apply( accuIndex );
+				bindings[ i$1 ].apply( accuIndex );
 
 			}
 
 			return this;
 
-		},
+		};
 
-		// Allows you to seek to a specific time in an animation.
-		setTime: function ( timeInSeconds ) {
+		/**
+		 * Sets the global mixer to a specific time and updates the animation accordingly.
+		 *
+		 * This is useful when you need to jump to an exact time in an animation. The
+		 * input parameter will be scaled by {@link AnimationMixer#timeScale}
+		 *
+		 * @param {number} time - The time to set in seconds.
+		 * @return {AnimationMixer} A reference to this animation mixer.
+		 */
+		AnimationMixer.prototype.setTime = function setTime ( time ) {
 
 			this.time = 0; // Zero out time attribute for AnimationMixer object;
 			for ( var i = 0; i < this._actions.length; i ++ ) {
@@ -45026,19 +48068,28 @@
 
 			}
 
-			return this.update( timeInSeconds ); // Update used to set exact time. Returns "this" AnimationMixer object.
+			return this.update( time ); // Update used to set exact time. Returns "this" AnimationMixer object.
 
-		},
+		};
 
-		// return this mixer's root target object
-		getRoot: function () {
+		/**
+		 * Returns this mixer's root object.
+		 *
+		 * @return {Object3D} The mixer's root object.
+		 */
+		AnimationMixer.prototype.getRoot = function getRoot () {
 
 			return this._root;
 
-		},
+		};
 
-		// free all resources specific to a particular clip
-		uncacheClip: function ( clip ) {
+		/**
+		 * Deallocates all memory resources for a clip. Before using this method make
+		 * sure to call {@link AnimationAction#stop} for all related actions.
+		 *
+		 * @param {AnimationClip} clip - The clip to uncache.
+		 */
+		AnimationMixer.prototype.uncacheClip = function uncacheClip ( clip ) {
 
 			var actions = this._actions,
 				clipUuid = clip.uuid,
@@ -45077,10 +48128,17 @@
 
 			}
 
-		},
+		};
 
-		// free all resources specific to a particular root target object
-		uncacheRoot: function ( root ) {
+		/**
+		 * Deallocates all memory resources for a root object. Before using this
+		 * method make sure to call {@link AnimationAction#stop} for all related
+		 * actions or alternatively {@link AnimationMixer#stopAllAction} when the
+		 * mixer operates on a single root.
+		 *
+		 * @param {Object3D} root - The root object to uncache.
+		 */
+		AnimationMixer.prototype.uncacheRoot = function uncacheRoot ( root ) {
 
 			var rootUuid = root.uuid,
 				actionsByClip = this._actionsByClip;
@@ -45114,10 +48172,17 @@
 
 			}
 
-		},
+		};
 
-		// remove a targeted clip from the cache
-		uncacheAction: function ( clip, optionalRoot ) {
+		/**
+		 * Deallocates all memory resources for an action. The action is identified by the
+		 * given clip and an optional root object. Before using this method make
+		 * sure to call {@link AnimationAction#stop} to deactivate the action.
+		 *
+		 * @param {AnimationClip|string} clip - An animation clip or alternatively the name of the animation clip.
+		 * @param {Object3D} [optionalRoot] - An alternative root object.
+		 */
+		AnimationMixer.prototype.uncacheAction = function uncacheAction ( clip, optionalRoot ) {
 
 			var action = this.existingAction( clip, optionalRoot );
 
@@ -45128,9 +48193,10 @@
 
 			}
 
-		}
+		};
 
-	} );
+		return AnimationMixer;
+	}(EventDispatcher));
 
 	/**
 	 * @author mrdoob / http://mrdoob.com/
@@ -45189,6 +48255,22 @@
 	 * @author mrdoob / http://mrdoob.com/
 	 * @author bhouston / http://clara.io/
 	 * @author stephomi / http://stephaneginier.com/
+	 *
+	 * backport from r185 (升级差距分析说明 3.0 §2.5)
+	 *
+	 * 与官方 r185 的刻意分歧(文件头注明, 均为保护现网拾取语义):
+	 * 1. intersectObject(s) 的 recursive 默认值保持 r110 的 false(官方 r185 为 true);
+	 * 2. 保留 r110 的 object.visible === false 跳过逻辑(官方 r113 起移除、只按 layers 过滤;
+	 *    现网 highlight()/renderBoundingboxMeshes 依赖 visible 语义);
+	 * 3. raycaster.layers 默认全通(enableAll, 官方默认仅 layer 0): r110 的 Raycaster 不看
+	 *    layers, 现网 LDrawBatchedPartStore 依赖「面 mesh 切隐藏图层后仍可拾取」;
+	 *    需要过滤时显式 raycaster.layers.set(n) 即得官方语义;
+	 * 4. setFromXRController 不移植(小程序无 XR)。
+	 *
+	 * 从 r185 引入:
+	 * - raycaster.layers 过滤(object.layers.test(raycaster.layers), 未设置过 layers 的对象恒通过);
+	 * - params.Line.threshold(线拾取阈值可调, Line.raycast 同步消费);
+	 * - object.raycast 返回 false 时停止向子树传播(r185 语义, r110 的 raycast 返回 undefined 不受影响)。
 	 */
 
 	function Raycaster( origin, direction, near, far ) {
@@ -45199,10 +48281,12 @@
 		this.near = near || 0;
 		this.far = far || Infinity;
 		this.camera = null;
+		this.layers = new Layers();
+		this.layers.enableAll(); // 刻意分歧 #3: 默认全通, 兼容 r110「拾取不看 layers」语义
 
 		this.params = {
 			Mesh: {},
-			Line: {},
+			Line: { threshold: 1 },
 			LOD: {},
 			Points: { threshold: 1 },
 			Sprite: {}
@@ -45227,19 +48311,28 @@
 
 	}
 
-	function intersectObject( object, raycaster, intersects, recursive ) {
+	function intersect( object, raycaster, intersects, recursive ) {
 
+		// r110 保留: 不可见对象整体跳过(见文件头刻意分歧 #2)
 		if ( object.visible === false ) { return; }
 
-		object.raycast( raycaster, intersects );
+		var propagate = true;
 
-		if ( recursive === true ) {
+		if ( object.layers.test( raycaster.layers ) ) {
+
+			var result = object.raycast( raycaster, intersects );
+
+			if ( result === false ) { propagate = false; }
+
+		}
+
+		if ( propagate === true && recursive === true ) {
 
 			var children = object.children;
 
 			for ( var i = 0, l = children.length; i < l; i ++ ) {
 
-				intersectObject( children[ i ], raycaster, intersects, true );
+				intersect( children[ i ], raycaster, intersects, true );
 
 			}
 
@@ -45285,7 +48378,7 @@
 
 			var intersects = optionalTarget || [];
 
-			intersectObject( object, this, intersects, recursive );
+			intersect( object, this, intersects, recursive );
 
 			intersects.sort( ascSort );
 
@@ -45306,7 +48399,7 @@
 
 			for ( var i = 0, l = objects.length; i < l; i ++ ) {
 
-				intersectObject( objects[ i ], this, intersects, recursive );
+				intersect( objects[ i ], this, intersects, recursive );
 
 			}
 
@@ -45471,7 +48564,7 @@
 	 * @author bhouston / http://clara.io
 	 */
 
-	var _vector$6 = new Vector2();
+	var _vector$7 = new Vector2();
 
 	function Box2( min, max ) {
 
@@ -45507,7 +48600,7 @@
 
 		setFromCenterAndSize: function ( center, size ) {
 
-			var halfSize = _vector$6.copy( size ).multiplyScalar( 0.5 );
+			var halfSize = _vector$7.copy( size ).multiplyScalar( 0.5 );
 			this.min.copy( center ).sub( halfSize );
 			this.max.copy( center ).add( halfSize );
 
@@ -45657,7 +48750,7 @@
 
 		distanceToPoint: function ( point ) {
 
-			var clampedPoint = _vector$6.copy( point ).clamp( this.min, this.max );
+			var clampedPoint = _vector$7.copy( point ).clamp( this.min, this.max );
 			return clampedPoint.sub( point ).length();
 
 		},
@@ -45863,8 +48956,8 @@
 	 * @author WestLangley / http://github.com/WestLangley
 	 */
 
-	var _v1$5 = new Vector3();
-	var _v2$3 = new Vector3();
+	var _v1$6 = new Vector3();
+	var _v2$4 = new Vector3();
 	var _normalMatrix$1 = new Matrix3();
 	var _keys = [ 'a', 'b', 'c' ];
 
@@ -45947,15 +49040,15 @@
 
 					var normal = face.vertexNormals[ j ];
 
-					_v1$5.copy( vertex ).applyMatrix4( matrixWorld );
+					_v1$6.copy( vertex ).applyMatrix4( matrixWorld );
 
-					_v2$3.copy( normal ).applyMatrix3( _normalMatrix$1 ).normalize().multiplyScalar( this.size ).add( _v1$5 );
+					_v2$4.copy( normal ).applyMatrix3( _normalMatrix$1 ).normalize().multiplyScalar( this.size ).add( _v1$6 );
 
-					position.setXYZ( idx, _v1$5.x, _v1$5.y, _v1$5.z );
+					position.setXYZ( idx, _v1$6.x, _v1$6.y, _v1$6.z );
 
 					idx = idx + 1;
 
-					position.setXYZ( idx, _v2$3.x, _v2$3.y, _v2$3.z );
+					position.setXYZ( idx, _v2$4.x, _v2$4.y, _v2$4.z );
 
 					idx = idx + 1;
 
@@ -45975,17 +49068,17 @@
 
 			for ( var j = 0, jl = objPos.count; j < jl; j ++ ) {
 
-				_v1$5.set( objPos.getX( j ), objPos.getY( j ), objPos.getZ( j ) ).applyMatrix4( matrixWorld );
+				_v1$6.set( objPos.getX( j ), objPos.getY( j ), objPos.getZ( j ) ).applyMatrix4( matrixWorld );
 
-				_v2$3.set( objNorm.getX( j ), objNorm.getY( j ), objNorm.getZ( j ) );
+				_v2$4.set( objNorm.getX( j ), objNorm.getY( j ), objNorm.getZ( j ) );
 
-				_v2$3.applyMatrix3( _normalMatrix$1 ).normalize().multiplyScalar( this.size ).add( _v1$5 );
+				_v2$4.applyMatrix3( _normalMatrix$1 ).normalize().multiplyScalar( this.size ).add( _v1$6 );
 
-				position.setXYZ( idx, _v1$5.x, _v1$5.y, _v1$5.z );
+				position.setXYZ( idx, _v1$6.x, _v1$6.y, _v1$6.z );
 
 				idx = idx + 1;
 
-				position.setXYZ( idx, _v2$3.x, _v2$3.y, _v2$3.z );
+				position.setXYZ( idx, _v2$4.x, _v2$4.y, _v2$4.z );
 
 				idx = idx + 1;
 
@@ -46003,7 +49096,7 @@
 	 * @author WestLangley / http://github.com/WestLangley
 	 */
 
-	var _vector$7 = new Vector3();
+	var _vector$8 = new Vector3();
 
 	function SpotLightHelper( light, color ) {
 
@@ -46069,9 +49162,9 @@
 
 		this.cone.scale.set( coneWidth, coneWidth, coneLength );
 
-		_vector$7.setFromMatrixPosition( this.light.target.matrixWorld );
+		_vector$8.setFromMatrixPosition( this.light.target.matrixWorld );
 
-		this.cone.lookAt( _vector$7 );
+		this.cone.lookAt( _vector$8 );
 
 		if ( this.color !== undefined ) {
 
@@ -46093,7 +49186,7 @@
 	 * @author Mugen87 / https://github.com/Mugen87
 	 */
 
-	var _vector$8 = new Vector3();
+	var _vector$9 = new Vector3();
 	var _boneMatrix = new Matrix4();
 	var _matrixWorldInv = new Matrix4();
 
@@ -46178,12 +49271,12 @@
 			if ( bone.parent && bone.parent.isBone ) {
 
 				_boneMatrix.multiplyMatrices( _matrixWorldInv, bone.matrixWorld );
-				_vector$8.setFromMatrixPosition( _boneMatrix );
-				position.setXYZ( j, _vector$8.x, _vector$8.y, _vector$8.z );
+				_vector$9.setFromMatrixPosition( _boneMatrix );
+				position.setXYZ( j, _vector$9.x, _vector$9.y, _vector$9.z );
 
 				_boneMatrix.multiplyMatrices( _matrixWorldInv, bone.parent.matrixWorld );
-				_vector$8.setFromMatrixPosition( _boneMatrix );
-				position.setXYZ( j + 1, _vector$8.x, _vector$8.y, _vector$8.z );
+				_vector$9.setFromMatrixPosition( _boneMatrix );
+				position.setXYZ( j + 1, _vector$9.x, _vector$9.y, _vector$9.z );
 
 				j += 2;
 
@@ -46365,7 +49458,7 @@
 	 * @author Mugen87 / https://github.com/Mugen87
 	 */
 
-	var _vector$9 = new Vector3();
+	var _vector$a = new Vector3();
 	var _color1 = new Color();
 	var _color2 = new Color();
 
@@ -46435,7 +49528,7 @@
 
 		}
 
-		mesh.lookAt( _vector$9.setFromMatrixPosition( this.light.matrixWorld ).negate() );
+		mesh.lookAt( _vector$a.setFromMatrixPosition( this.light.matrixWorld ).negate() );
 
 	};
 
@@ -46839,8 +49932,8 @@
 	 * @author WestLangley / http://github.com/WestLangley
 	 */
 
-	var _v1$6 = new Vector3();
-	var _v2$4 = new Vector3();
+	var _v1$7 = new Vector3();
+	var _v2$5 = new Vector3();
 	var _normalMatrix$2 = new Matrix3();
 
 	function FaceNormalsHelper( object, size, hex, linewidth ) {
@@ -46917,19 +50010,19 @@
 
 			var normal = face.normal;
 
-			_v1$6.copy( vertices[ face.a ] )
+			_v1$7.copy( vertices[ face.a ] )
 				.add( vertices[ face.b ] )
 				.add( vertices[ face.c ] )
 				.divideScalar( 3 )
 				.applyMatrix4( matrixWorld );
 
-			_v2$4.copy( normal ).applyMatrix3( _normalMatrix$2 ).normalize().multiplyScalar( this.size ).add( _v1$6 );
+			_v2$5.copy( normal ).applyMatrix3( _normalMatrix$2 ).normalize().multiplyScalar( this.size ).add( _v1$7 );
 
-			position.setXYZ( idx, _v1$6.x, _v1$6.y, _v1$6.z );
+			position.setXYZ( idx, _v1$7.x, _v1$7.y, _v1$7.z );
 
 			idx = idx + 1;
 
-			position.setXYZ( idx, _v2$4.x, _v2$4.y, _v2$4.z );
+			position.setXYZ( idx, _v2$5.x, _v2$5.y, _v2$5.z );
 
 			idx = idx + 1;
 
@@ -46945,8 +50038,8 @@
 	 * @author WestLangley / http://github.com/WestLangley
 	 */
 
-	var _v1$7 = new Vector3();
-	var _v2$5 = new Vector3();
+	var _v1$8 = new Vector3();
+	var _v2$6 = new Vector3();
 	var _v3$1 = new Vector3();
 
 	function DirectionalLightHelper( light, size, color ) {
@@ -47001,11 +50094,11 @@
 
 	DirectionalLightHelper.prototype.update = function () {
 
-		_v1$7.setFromMatrixPosition( this.light.matrixWorld );
-		_v2$5.setFromMatrixPosition( this.light.target.matrixWorld );
-		_v3$1.subVectors( _v2$5, _v1$7 );
+		_v1$8.setFromMatrixPosition( this.light.matrixWorld );
+		_v2$6.setFromMatrixPosition( this.light.target.matrixWorld );
+		_v3$1.subVectors( _v2$6, _v1$8 );
 
-		this.lightPlane.lookAt( _v2$5 );
+		this.lightPlane.lookAt( _v2$6 );
 
 		if ( this.color !== undefined ) {
 
@@ -47019,7 +50112,7 @@
 
 		}
 
-		this.targetLine.lookAt( _v2$5 );
+		this.targetLine.lookAt( _v2$6 );
 		this.targetLine.scale.z = _v3$1.length();
 
 	};
@@ -47034,7 +50127,7 @@
 	 *		http://evanw.github.com/lightgl.js/tests/shadowmap.html
 	 */
 
-	var _vector$a = new Vector3();
+	var _vector$b = new Vector3();
 	var _camera = new Camera();
 
 	function CameraHelper( camera ) {
@@ -47199,7 +50292,7 @@
 
 	function setPoint( point, pointMap, geometry, camera, x, y, z ) {
 
-		_vector$a.set( x, y, z ).unproject( camera );
+		_vector$b.set( x, y, z ).unproject( camera );
 
 		var points = pointMap[ point ];
 
@@ -47209,7 +50302,7 @@
 
 			for ( var i = 0, l = points.length; i < l; i ++ ) {
 
-				position.setXYZ( points[ i ], _vector$a.x, _vector$a.y, _vector$a.z );
+				position.setXYZ( points[ i ], _vector$b.x, _vector$b.y, _vector$b.z );
 
 			}
 
@@ -47222,7 +50315,7 @@
 	 * @author Mugen87 / http://github.com/Mugen87
 	 */
 
-	var _box$2 = new Box3();
+	var _box$4 = new Box3();
 
 	function BoxHelper( object, color ) {
 
@@ -47258,14 +50351,14 @@
 
 		if ( this.object !== undefined ) {
 
-			_box$2.setFromObject( this.object );
+			_box$4.setFromObject( this.object );
 
 		}
 
-		if ( _box$2.isEmpty() ) { return; }
+		if ( _box$4.isEmpty() ) { return; }
 
-		var min = _box$2.min;
-		var max = _box$2.max;
+		var min = _box$4.min;
+		var max = _box$4.max;
 
 		/*
 		  5____4
@@ -49599,6 +52692,7 @@
 	exports.ACESFilmicToneMapping = ACESFilmicToneMapping;
 	exports.AddEquation = AddEquation;
 	exports.AddOperation = AddOperation;
+	exports.AdditiveAnimationBlendMode = AdditiveAnimationBlendMode;
 	exports.AdditiveBlending = AdditiveBlending;
 	exports.AlphaFormat = AlphaFormat;
 	exports.AlwaysDepth = AlwaysDepth;
@@ -49623,6 +52717,7 @@
 	exports.BackSide = BackSide;
 	exports.BasicDepthPacking = BasicDepthPacking;
 	exports.BasicShadowMap = BasicShadowMap;
+	exports.BatchedMesh = BatchedMesh;
 	exports.BinaryTextureLoader = BinaryTextureLoader;
 	exports.Bone = Bone;
 	exports.BooleanKeyframeTrack = BooleanKeyframeTrack;
@@ -49651,6 +52746,7 @@
 	exports.ClosedSplineCurve3 = ClosedSplineCurve3;
 	exports.Color = Color;
 	exports.ColorKeyframeTrack = ColorKeyframeTrack;
+	exports.ColorManagement = ColorManagement;
 	exports.CompressedTexture = CompressedTexture;
 	exports.CompressedTextureLoader = CompressedTextureLoader;
 	exports.ConeBufferGeometry = ConeBufferGeometry;
@@ -49801,7 +52897,10 @@
 	exports.LinearMipMapNearestFilter = LinearMipMapNearestFilter;
 	exports.LinearMipmapLinearFilter = LinearMipmapLinearFilter;
 	exports.LinearMipmapNearestFilter = LinearMipmapNearestFilter;
+	exports.LinearSRGBColorSpace = LinearSRGBColorSpace;
+	exports.LinearToSRGB = LinearToSRGB;
 	exports.LinearToneMapping = LinearToneMapping;
+	exports.LinearTransfer = LinearTransfer;
 	exports.Loader = Loader;
 	exports.LoaderUtils = LoaderUtils;
 	exports.LoadingManager = LoadingManager;
@@ -49844,8 +52943,10 @@
 	exports.NeverDepth = NeverDepth;
 	exports.NeverStencilFunc = NeverStencilFunc;
 	exports.NoBlending = NoBlending;
+	exports.NoColorSpace = NoColorSpace;
 	exports.NoColors = NoColors;
 	exports.NoToneMapping = NoToneMapping;
+	exports.NormalAnimationBlendMode = NormalAnimationBlendMode;
 	exports.NormalBlending = NormalBlending;
 	exports.NotEqualDepth = NotEqualDepth;
 	exports.NotEqualStencilFunc = NotEqualStencilFunc;
@@ -49937,6 +53038,9 @@
 	exports.ReverseSubtractEquation = ReverseSubtractEquation;
 	exports.RingBufferGeometry = RingBufferGeometry;
 	exports.RingGeometry = RingGeometry;
+	exports.SRGBColorSpace = SRGBColorSpace;
+	exports.SRGBToLinear = SRGBToLinear;
+	exports.SRGBTransfer = SRGBTransfer;
 	exports.Scene = Scene;
 	exports.SceneUtils = SceneUtils;
 	exports.ShaderChunk = ShaderChunk;

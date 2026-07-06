@@ -4,10 +4,14 @@
 
 import { BackSide, DoubleSide, CubeUVRefractionMapping, CubeUVReflectionMapping, GammaEncoding, LinearEncoding, ObjectSpaceNormalMap, TangentSpaceNormalMap, NoToneMapping } from '../../constants.js';
 import { WebGLProgram } from './WebGLProgram.js';
+import { WebGLShaderCache } from './WebGLShaderCache.js';
 
 function WebGLPrograms( renderer, extensions, capabilities ) {
 
 	var programs = [];
+
+	// backport from r185(阶段三 4.2#3): 自定义 shader 源码级缓存
+	var customShaders = new WebGLShaderCache();
 
 	var isWebGL2 = capabilities.isWebGL2;
 	var logarithmicDepthBuffer = capabilities.logarithmicDepthBuffer;
@@ -35,7 +39,8 @@ function WebGLPrograms( renderer, extensions, capabilities ) {
 	};
 
 	var parameterNames = [
-		"precision", "isWebGL2", "supportsVertexTextures", "outputEncoding", "instancing", "numMultiviewViews",
+		"precision", "isWebGL2", "supportsVertexTextures", "outputEncoding", "instancing", "instancingColor",
+		"batching", "batchingColor", "extensionMultiDraw", "numMultiviewViews",
 		"map", "mapEncoding", "matcap", "matcapEncoding", "envMap", "envMapMode", "envMapEncoding", "envMapCubeUV",
 		"lightMap", "aoMap", "emissiveMap", "emissiveMapEncoding", "bumpMap", "normalMap", "objectSpaceNormalMap", "tangentSpaceNormalMap", "clearcoatNormalMap", "displacementMap", "specularMap",
 		"roughnessMap", "metalnessMap", "gradientMap",
@@ -150,6 +155,12 @@ function WebGLPrograms( renderer, extensions, capabilities ) {
 			precision: precision,
 
 			instancing: object.isInstancedMesh === true,
+			instancingColor: object.isInstancedMesh === true && object.instanceColor !== null,
+
+			// backport from r185(阶段三 4.2#2): BatchedMesh GL1 版
+			batching: object.isBatchedMesh === true,
+			batchingColor: object.isBatchedMesh === true && object._colorsTexture !== null,
+			extensionMultiDraw: object.isBatchedMesh === true && extensions.get( 'WEBGL_multi_draw' ) !== null,
 
 			supportsVertexTextures: vertexTextures,
 			numMultiviewViews: numMultiviewViews,
@@ -251,8 +262,12 @@ function WebGLPrograms( renderer, extensions, capabilities ) {
 
 		} else {
 
-			array.push( material.fragmentShader );
-			array.push( material.vertexShader );
+			// backport from r185(阶段三 4.2#3): 自定义 shader 用源码级缓存 id
+			// 替代完整 GLSL 文本, key 构建成本 O(源码长度) -> O(1)
+			customShaders.update( material );
+
+			array.push( customShaders.getVertexShaderID( material ) );
+			array.push( customShaders.getFragmentShaderID( material ) );
 
 		}
 
@@ -311,6 +326,18 @@ function WebGLPrograms( renderer, extensions, capabilities ) {
 		}
 
 		return program;
+
+	};
+
+	this.releaseShaderCache = function ( material ) {
+
+		customShaders.remove( material );
+
+	};
+
+	this.dispose = function () {
+
+		customShaders.dispose();
 
 	};
 

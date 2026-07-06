@@ -1,9 +1,26 @@
 import { Ray } from '../math/Ray.js';
+import { Layers } from './Layers.js';
 
 /**
  * @author mrdoob / http://mrdoob.com/
  * @author bhouston / http://clara.io/
  * @author stephomi / http://stephaneginier.com/
+ *
+ * backport from r185 (升级差距分析说明 3.0 §2.5)
+ *
+ * 与官方 r185 的刻意分歧(文件头注明, 均为保护现网拾取语义):
+ * 1. intersectObject(s) 的 recursive 默认值保持 r110 的 false(官方 r185 为 true);
+ * 2. 保留 r110 的 object.visible === false 跳过逻辑(官方 r113 起移除、只按 layers 过滤;
+ *    现网 highlight()/renderBoundingboxMeshes 依赖 visible 语义);
+ * 3. raycaster.layers 默认全通(enableAll, 官方默认仅 layer 0): r110 的 Raycaster 不看
+ *    layers, 现网 LDrawBatchedPartStore 依赖「面 mesh 切隐藏图层后仍可拾取」;
+ *    需要过滤时显式 raycaster.layers.set(n) 即得官方语义;
+ * 4. setFromXRController 不移植(小程序无 XR)。
+ *
+ * 从 r185 引入:
+ * - raycaster.layers 过滤(object.layers.test(raycaster.layers), 未设置过 layers 的对象恒通过);
+ * - params.Line.threshold(线拾取阈值可调, Line.raycast 同步消费);
+ * - object.raycast 返回 false 时停止向子树传播(r185 语义, r110 的 raycast 返回 undefined 不受影响)。
  */
 
 function Raycaster( origin, direction, near, far ) {
@@ -14,10 +31,12 @@ function Raycaster( origin, direction, near, far ) {
 	this.near = near || 0;
 	this.far = far || Infinity;
 	this.camera = null;
+	this.layers = new Layers();
+	this.layers.enableAll(); // 刻意分歧 #3: 默认全通, 兼容 r110「拾取不看 layers」语义
 
 	this.params = {
 		Mesh: {},
-		Line: {},
+		Line: { threshold: 1 },
 		LOD: {},
 		Points: { threshold: 1 },
 		Sprite: {}
@@ -42,19 +61,28 @@ function ascSort( a, b ) {
 
 }
 
-function intersectObject( object, raycaster, intersects, recursive ) {
+function intersect( object, raycaster, intersects, recursive ) {
 
+	// r110 保留: 不可见对象整体跳过(见文件头刻意分歧 #2)
 	if ( object.visible === false ) return;
 
-	object.raycast( raycaster, intersects );
+	var propagate = true;
 
-	if ( recursive === true ) {
+	if ( object.layers.test( raycaster.layers ) ) {
+
+		var result = object.raycast( raycaster, intersects );
+
+		if ( result === false ) propagate = false;
+
+	}
+
+	if ( propagate === true && recursive === true ) {
 
 		var children = object.children;
 
 		for ( var i = 0, l = children.length; i < l; i ++ ) {
 
-			intersectObject( children[ i ], raycaster, intersects, true );
+			intersect( children[ i ], raycaster, intersects, true );
 
 		}
 
@@ -100,7 +128,7 @@ Object.assign( Raycaster.prototype, {
 
 		var intersects = optionalTarget || [];
 
-		intersectObject( object, this, intersects, recursive );
+		intersect( object, this, intersects, recursive );
 
 		intersects.sort( ascSort );
 
@@ -121,7 +149,7 @@ Object.assign( Raycaster.prototype, {
 
 		for ( var i = 0, l = objects.length; i < l; i ++ ) {
 
-			intersectObject( objects[ i ], this, intersects, recursive );
+			intersect( objects[ i ], this, intersects, recursive );
 
 		}
 

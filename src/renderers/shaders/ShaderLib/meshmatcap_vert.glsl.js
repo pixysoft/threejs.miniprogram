@@ -10,6 +10,7 @@ varying vec3 vViewPosition;
 #endif
 
 #include <common>
+#include <batching_pars_vertex>
 #include <uv_pars_vertex>
 #include <displacementmap_pars_vertex>
 #include <fog_pars_vertex>
@@ -22,6 +23,7 @@ varying vec3 vViewPosition;
 void main() {
 
 	#include <uv_vertex>
+	#include <batching_vertex>
 
 	#include <beginnormal_vertex>
 	#include <morphnormal_vertex>

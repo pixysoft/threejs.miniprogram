@@ -2,10 +2,16 @@ import { Box3 } from './Box3.js';
 import { Vector3 } from './Vector3.js';
 
 var _box = new Box3();
+var _v1 = new Vector3();
+var _v2 = new Vector3();
 
 /**
  * @author bhouston / http://clara.io
  * @author mrdoob / http://mrdoob.com/
+ *
+ * backport from r185(为 InstancedMesh/BatchedMesh 包围球计算补的纯 JS 增量):
+ * isEmpty/makeEmpty/expandByPoint/union; 构造默认 radius 仍为 0(不改旧语义),
+ * 空球以 radius<0 表达(makeEmpty 之后), 旧 empty() 保留
  */
 
 function Sphere( center, radius ) {
@@ -72,6 +78,89 @@ Object.assign( Sphere.prototype, {
 	empty: function () {
 
 		return ( this.radius <= 0 );
+
+	},
+
+	isEmpty: function () {
+
+		return ( this.radius < 0 );
+
+	},
+
+	makeEmpty: function () {
+
+		this.center.set( 0, 0, 0 );
+		this.radius = - 1;
+
+		return this;
+
+	},
+
+	expandByPoint: function ( point ) {
+
+		if ( this.isEmpty() ) {
+
+			this.center.copy( point );
+
+			this.radius = 0;
+
+			return this;
+
+		}
+
+		_v1.subVectors( point, this.center );
+
+		var lengthSq = _v1.lengthSq();
+
+		if ( lengthSq > ( this.radius * this.radius ) ) {
+
+			// calculate the minimal sphere
+
+			var length = Math.sqrt( lengthSq );
+
+			var delta = ( length - this.radius ) * 0.5;
+
+			this.center.addScaledVector( _v1, delta / length );
+
+			this.radius += delta;
+
+		}
+
+		return this;
+
+	},
+
+	union: function ( sphere ) {
+
+		if ( sphere.isEmpty() ) {
+
+			return this;
+
+		}
+
+		if ( this.isEmpty() ) {
+
+			this.copy( sphere );
+
+			return this;
+
+		}
+
+		if ( this.center.equals( sphere.center ) === true ) {
+
+			this.radius = Math.max( this.radius, sphere.radius );
+
+		} else {
+
+			_v2.subVectors( sphere.center, this.center ).setLength( sphere.radius );
+
+			this.expandByPoint( _v1.copy( sphere.center ).add( _v2 ) );
+
+			this.expandByPoint( _v1.copy( sphere.center ).sub( _v2 ) );
+
+		}
+
+		return this;
 
 	},
 

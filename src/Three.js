@@ -19,6 +19,7 @@ export { Skeleton } from './objects/Skeleton.js';
 export { Bone } from './objects/Bone.js';
 export { Mesh } from './objects/Mesh.js';
 export { InstancedMesh } from './objects/InstancedMesh.js';
+export { BatchedMesh } from './objects/BatchedMesh.js';
 export { LineSegments } from './objects/LineSegments.js';
 export { LineLoop } from './objects/LineLoop.js';
 export { Line } from './objects/Line.js';
@@ -128,6 +129,8 @@ export { Vector3 } from './math/Vector3.js';
 export { Vector2 } from './math/Vector2.js';
 export { Quaternion } from './math/Quaternion.js';
 export { Color } from './math/Color.js';
+// backport from r185
+export { ColorManagement, SRGBToLinear, LinearToSRGB } from './math/ColorManagement.js';
 export { SphericalHarmonics3 } from './math/SphericalHarmonics3.js';
 export { ImmediateRenderObject } from './extras/objects/ImmediateRenderObject.js';
 export { VertexNormalsHelper } from './helpers/VertexNormalsHelper.js';

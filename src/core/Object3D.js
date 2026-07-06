@@ -101,6 +101,11 @@ function Object3D() {
 	this.matrixWorld = new Matrix4();
 
 	this.matrixAutoUpdate = Object3D.DefaultMatrixAutoUpdate;
+
+	// backport from r185(阶段二 4.1#3): 置 false 可让静态子树跳过
+	// matrixWorld 重算(仍会递归遍历, 但省去矩阵乘法), 由渲染器与
+	// updateMatrixWorld/updateWorldMatrix 共同消费
+	this.matrixWorldAutoUpdate = Object3D.DefaultMatrixWorldAutoUpdate;
 	this.matrixWorldNeedsUpdate = false;
 
 	this.layers = new Layers();
@@ -118,6 +123,7 @@ function Object3D() {
 
 Object3D.DefaultUp = new Vector3( 0, 1, 0 );
 Object3D.DefaultMatrixAutoUpdate = true;
+Object3D.DefaultMatrixWorldAutoUpdate = true;
 
 Object3D.prototype = Object.assign( Object.create( EventDispatcher.prototype ), {
 
@@ -558,19 +564,25 @@ Object3D.prototype = Object.assign( Object.create( EventDispatcher.prototype ), 
 
 	},
 
+	// backport from r185(阶段二 4.1#3): matrixWorldAutoUpdate=false 的节点
+	// 跳过 matrixWorld 重算(matrix 仍可经 updateMatrix 手动合成)
 	updateMatrixWorld: function ( force ) {
 
 		if ( this.matrixAutoUpdate ) this.updateMatrix();
 
 		if ( this.matrixWorldNeedsUpdate || force ) {
 
-			if ( this.parent === null ) {
+			if ( this.matrixWorldAutoUpdate === true ) {
 
-				this.matrixWorld.copy( this.matrix );
+				if ( this.parent === null ) {
 
-			} else {
+					this.matrixWorld.copy( this.matrix );
 
-				this.matrixWorld.multiplyMatrices( this.parent.matrixWorld, this.matrix );
+				} else {
+
+					this.matrixWorld.multiplyMatrices( this.parent.matrixWorld, this.matrix );
+
+				}
 
 			}
 
@@ -592,7 +604,13 @@ Object3D.prototype = Object.assign( Object.create( EventDispatcher.prototype ), 
 
 	},
 
-	updateWorldMatrix: function ( updateParents, updateChildren ) {
+	// backport from r185: 增加 force 参数; 无 force 时仅重算脏节点,
+	// matrixWorldAutoUpdate 语义与 updateMatrixWorld 一致
+	updateWorldMatrix: function ( updateParents, updateChildren, force ) {
+
+		// r185 默认 force=false; matrixAutoUpdate=true 的节点 updateMatrix()
+		// 会置脏, 行为与 r110 无差异; 仅手动矩阵节点需要显式传 force
+		if ( force === undefined ) force = false;
 
 		var parent = this.parent;
 
@@ -604,13 +622,23 @@ Object3D.prototype = Object.assign( Object.create( EventDispatcher.prototype ), 
 
 		if ( this.matrixAutoUpdate ) this.updateMatrix();
 
-		if ( this.parent === null ) {
+		if ( this.matrixWorldNeedsUpdate || force ) {
 
-			this.matrixWorld.copy( this.matrix );
+			if ( this.matrixWorldAutoUpdate === true ) {
 
-		} else {
+				if ( this.parent === null ) {
 
-			this.matrixWorld.multiplyMatrices( this.parent.matrixWorld, this.matrix );
+					this.matrixWorld.copy( this.matrix );
+
+				} else {
+
+					this.matrixWorld.multiplyMatrices( this.parent.matrixWorld, this.matrix );
+
+				}
+
+			}
+
+			this.matrixWorldNeedsUpdate = false;
 
 		}
 
@@ -622,7 +650,7 @@ Object3D.prototype = Object.assign( Object.create( EventDispatcher.prototype ), 
 
 			for ( var i = 0, l = children.length; i < l; i ++ ) {
 
-				children[ i ].updateWorldMatrix( false, true );
+				children[ i ].updateWorldMatrix( false, true, force );
 
 			}
 
@@ -832,6 +860,7 @@ Object3D.prototype = Object.assign( Object.create( EventDispatcher.prototype ), 
 		this.matrixWorld.copy( source.matrixWorld );
 
 		this.matrixAutoUpdate = source.matrixAutoUpdate;
+		this.matrixWorldAutoUpdate = source.matrixWorldAutoUpdate;
 		this.matrixWorldNeedsUpdate = source.matrixWorldNeedsUpdate;
 
 		this.layers.mask = source.layers.mask;

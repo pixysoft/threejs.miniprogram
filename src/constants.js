@@ -133,6 +133,15 @@ export var InterpolateSmooth = 2302;
 export var ZeroCurvatureEnding = 2400;
 export var ZeroSlopeEnding = 2401;
 export var WrapAroundEnding = 2402;
+// backport from r185: additive 动画混合模式
+export var NormalAnimationBlendMode = 2500;
+export var AdditiveAnimationBlendMode = 2501;
+// backport from r185: ColorManagement 色彩空间标识
+export var NoColorSpace = '';
+export var SRGBColorSpace = 'srgb';
+export var LinearSRGBColorSpace = 'srgb-linear';
+export var LinearTransfer = 'linear';
+export var SRGBTransfer = 'srgb';
 export var TrianglesDrawMode = 0;
 export var TriangleStripDrawMode = 1;
 export var TriangleFanDrawMode = 2;

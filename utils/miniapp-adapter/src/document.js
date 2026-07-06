@@ -130,7 +130,7 @@ const document = {
         const listeners = events[type]
 
         if (listeners && listeners.length > 0) {
-            for (let i = listeners.length; i--; i > 0) {
+            for (let i = listeners.length - 1; i >= 0; i--) {
                 if (listeners[i] === listener) {
                     listeners.splice(i, 1)
                     break
@@ -144,8 +144,9 @@ const document = {
         const listeners = events[type]
 
         if (listeners) {
+            // 与 EventTarget.dispatchEvent 一致：this 绑定到 currentTarget（document）
             for (let i = 0; i < listeners.length; i++) {
-                listeners[i](event)
+                listeners[i].call(this, event)
             }
         }
 

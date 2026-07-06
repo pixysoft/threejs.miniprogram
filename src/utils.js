@@ -34,4 +34,24 @@ function arrayMax( array ) {
 
 }
 
-export { arrayMin, arrayMax };
+// backport from r185: AnimationUtils 依赖
+function isTypedArray( object ) {
+
+	return ArrayBuffer.isView( object ) && ! ( object instanceof DataView );
+
+}
+
+// backport from r185: 同一条警告只输出一次(ColorManagement 依赖)
+var _warnedMessages = {};
+
+function warnOnce( message ) {
+
+	if ( _warnedMessages[ message ] === true ) return;
+
+	_warnedMessages[ message ] = true;
+
+	console.warn( message );
+
+}
+
+export { arrayMin, arrayMax, isTypedArray, warnOnce };

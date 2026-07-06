@@ -617,6 +617,9 @@ function WebGLRenderer( parameters ) {
 
 		releaseMaterialProgramReference( material );
 
+		// backport from r185(阶段三 4.2#3): 释放自定义 shader 源码级缓存
+		programCache.releaseShaderCache( material );
+
 		properties.remove( material );
 
 	}
@@ -863,7 +866,33 @@ function WebGLRenderer( parameters ) {
 
 		}
 
-		if ( object.isInstancedMesh ) {
+		if ( object.isBatchedMesh ) {
+
+			// backport from r185(阶段三 4.2#2): 有 WEBGL_multi_draw 时一次提交全部
+			// 可见段; 无扩展时循环 draw + 逐段更新 _gl_DrawID(r185 官方 fallback),
+			// 仍省去逐对象 program/material/attribute 切换
+			if ( extensions.get( 'WEBGL_multi_draw' ) !== null ) {
+
+				renderer.renderMultiDraw( object._multiDrawStarts, object._multiDrawCounts, object._multiDrawCount );
+
+			} else {
+
+				var starts = object._multiDrawStarts;
+				var counts = object._multiDrawCounts;
+				var multiDrawCount = object._multiDrawCount;
+				var bytesPerElement = ( index !== null ) ? attribute.bytesPerElement : 1;
+				var drawUniforms = program.getUniforms();
+
+				for ( var d = 0; d < multiDrawCount; d ++ ) {
+
+					drawUniforms.setValue( _gl, '_gl_DrawID', d );
+					renderer.render( starts[ d ] / bytesPerElement, counts[ d ] );
+
+				}
+
+			}
+
+		} else if ( object.isInstancedMesh ) {
 
 			renderer.renderInstances( geometry, drawStart, drawCount, object.count );
 
@@ -988,6 +1017,22 @@ function WebGLRenderer( parameters ) {
 					_gl.vertexAttribPointer( programAttribute + 1, 4, type, false, 64, 16 );
 					_gl.vertexAttribPointer( programAttribute + 2, 4, type, false, 64, 32 );
 					_gl.vertexAttribPointer( programAttribute + 3, 4, type, false, 64, 48 );
+
+				} else if ( name === 'instanceColor' && object.instanceColor ) {
+
+					// backport from r185(阶段三 4.2#1): 逐实例颜色 attribute
+					var attribute = attributes.get( object.instanceColor );
+
+					if ( attribute === undefined ) continue;
+
+					var buffer = attribute.buffer;
+					var type = attribute.type;
+
+					state.enableAttributeAndDivisor( programAttribute, 1 );
+
+					_gl.bindBuffer( _gl.ARRAY_BUFFER, buffer );
+
+					_gl.vertexAttribPointer( programAttribute, 3, type, false, 12, 0 );
 
 				} else if ( materialDefaultAttributeValues !== undefined ) {
 
@@ -1499,6 +1544,13 @@ function WebGLRenderer( parameters ) {
 
 		var programCacheKey = programCache.getProgramCacheKey( material, parameters );
 
+		// 记录对象相关参数(instancing/batching), setProgram 检测到与当前
+		// object 不匹配时触发重编译(材质不应在合批/非合批对象间共享)
+		materialProperties.instancing = parameters.instancing;
+		materialProperties.instancingColor = parameters.instancingColor;
+		materialProperties.batching = parameters.batching;
+		materialProperties.batchingColor = parameters.batchingColor;
+
 		var program = materialProperties.program;
 		var programChange = true;
 
@@ -1689,6 +1741,23 @@ function WebGLRenderer( parameters ) {
 
 				material.needsUpdate = true;
 
+			} else if ( materialProperties.instancing !== ( object.isInstancedMesh === true ) ) {
+
+				// backport from r185: 对象相关编译参数变化时触发重编译
+				material.needsUpdate = true;
+
+			} else if ( materialProperties.instancingColor !== ( object.isInstancedMesh === true && object.instanceColor !== null ) ) {
+
+				material.needsUpdate = true;
+
+			} else if ( materialProperties.batching !== ( object.isBatchedMesh === true ) ) {
+
+				material.needsUpdate = true;
+
+			} else if ( materialProperties.batchingColor !== ( object.isBatchedMesh === true && object._colorsTexture !== null ) ) {
+
+				material.needsUpdate = true;
+
 			} else if ( materialProperties.numClippingPlanes !== undefined &&
 				( materialProperties.numClippingPlanes !== _clipping.numPlanes ||
 				materialProperties.numIntersection !== _clipping.numIntersection ) ) {
@@ -1862,6 +1931,25 @@ function WebGLRenderer( parameters ) {
 					p_uniforms.setOptional( _gl, skeleton, 'boneMatrices' );
 
 				}
+
+			}
+
+		}
+
+		// backport from r185(阶段三 4.2#2): BatchedMesh 纹理与尺寸 uniform
+		// (GL1 改造: texelFetch 不可用, 采样函数经 size uniform 手动换算 UV)
+		if ( object.isBatchedMesh ) {
+
+			p_uniforms.setValue( _gl, 'batchingTexture', object._matricesTexture, textures );
+			p_uniforms.setValue( _gl, 'batchingTextureSize', object._matricesTexture.image.width );
+
+			p_uniforms.setValue( _gl, 'batchingIdTexture', object._indirectTexture, textures );
+			p_uniforms.setValue( _gl, 'batchingIdTextureSize', object._indirectTexture.image.width );
+
+			if ( object._colorsTexture !== null ) {
+
+				p_uniforms.setValue( _gl, 'batchingColorTexture', object._colorsTexture, textures );
+				p_uniforms.setValue( _gl, 'batchingColorTextureSize', object._colorsTexture.image.width );
 
 			}
 

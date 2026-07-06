@@ -1,3 +1,4 @@
+import { Vector2 } from './Vector2.js';
 import { Vector3 } from './Vector3.js';
 import { Sphere } from './Sphere.js';
 import { Plane } from './Plane.js';
@@ -6,9 +7,17 @@ import { Plane } from './Plane.js';
  * @author mrdoob / http://mrdoob.com/
  * @author alteredq / http://alteredqualia.com/
  * @author bhouston / http://clara.io
+ *
+ * backport from r185(阶段二 4.1#2):
+ * - setFromProjectionMatrix: 新 API 名(WebGL 坐标系语义, 与旧 setFromMatrix 同算法);
+ *   setFromMatrix 保留为别名, 渲染器与业务旧调用零改动
+ * - intersectsObject: 优先消费对象级 boundingSphere(InstancedMesh/BatchedMesh
+ *   的整体包围球), 无对象级包围球时回退几何级(旧行为)
+ * - intersectsSprite: 半径按 sprite.center 偏移量补偿(修非居中锚点被误剔除)
  */
 
 var _sphere = new Sphere();
+var _defaultSpriteCenter = new Vector2( 0.5, 0.5 );
 var _vector = new Vector3();
 
 function Frustum( p0, p1, p2, p3, p4, p5 ) {
@@ -63,7 +72,7 @@ Object.assign( Frustum.prototype, {
 
 	},
 
-	setFromMatrix: function ( m ) {
+	setFromProjectionMatrix: function ( m ) {
 
 		var planes = this.planes;
 		var me = m.elements;
@@ -76,20 +85,37 @@ Object.assign( Frustum.prototype, {
 		planes[ 1 ].setComponents( me3 + me0, me7 + me4, me11 + me8, me15 + me12 ).normalize();
 		planes[ 2 ].setComponents( me3 + me1, me7 + me5, me11 + me9, me15 + me13 ).normalize();
 		planes[ 3 ].setComponents( me3 - me1, me7 - me5, me11 - me9, me15 - me13 ).normalize();
-		planes[ 4 ].setComponents( me3 - me2, me7 - me6, me11 - me10, me15 - me14 ).normalize();
-		planes[ 5 ].setComponents( me3 + me2, me7 + me6, me11 + me10, me15 + me14 ).normalize();
+		planes[ 4 ].setComponents( me3 - me2, me7 - me6, me11 - me10, me15 - me14 ).normalize(); // far
+		planes[ 5 ].setComponents( me3 + me2, me7 + me6, me11 + me10, me15 + me14 ).normalize(); // near
 
 		return this;
 
 	},
 
+	// 旧 API 别名(r110 渲染器与业务侧调用点保持兼容)
+	setFromMatrix: function ( m ) {
+
+		return this.setFromProjectionMatrix( m );
+
+	},
+
 	intersectsObject: function ( object ) {
 
-		var geometry = object.geometry;
+		if ( object.boundingSphere !== undefined ) {
 
-		if ( geometry.boundingSphere === null ) geometry.computeBoundingSphere();
+			if ( object.boundingSphere === null ) object.computeBoundingSphere();
 
-		_sphere.copy( geometry.boundingSphere ).applyMatrix4( object.matrixWorld );
+			_sphere.copy( object.boundingSphere ).applyMatrix4( object.matrixWorld );
+
+		} else {
+
+			var geometry = object.geometry;
+
+			if ( geometry.boundingSphere === null ) geometry.computeBoundingSphere();
+
+			_sphere.copy( geometry.boundingSphere ).applyMatrix4( object.matrixWorld );
+
+		}
 
 		return this.intersectsSphere( _sphere );
 
@@ -98,7 +124,10 @@ Object.assign( Frustum.prototype, {
 	intersectsSprite: function ( sprite ) {
 
 		_sphere.center.set( 0, 0, 0 );
-		_sphere.radius = 0.7071067811865476;
+
+		var offset = ( sprite.center !== undefined ) ? _defaultSpriteCenter.distanceTo( sprite.center ) : 0;
+
+		_sphere.radius = 0.7071067811865476 + offset;
 		_sphere.applyMatrix4( sprite.matrixWorld );
 
 		return this.intersectsSphere( _sphere );
