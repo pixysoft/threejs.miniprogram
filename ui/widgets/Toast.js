@@ -13,15 +13,21 @@ const UILabel = require('../render/UILabel');
 function createToast(ctx) {
     let current = null;
 
+    function dismiss(bg) {
+        if (bg._toastRelayout) {
+            ctx.root.off('resize', bg._toastRelayout);
+            bg._toastRelayout = null;
+        }
+        if (current === bg) current = null;
+        bg.destroy();
+    }
+
     function show(msg, duration) {
         duration = duration || 1800;
         const skin = ctx.theme.resolve('Toast');
         const view = ctx.view;
 
-        if (current) {
-            current.destroy();
-            current = null;
-        }
+        if (current) dismiss(current);
 
         const label = new UILabel(ctx, { text: msg, size: skin.label.size, color: skin.label.color });
         const padX = 32, padY = 16;
@@ -30,10 +36,17 @@ function createToast(ctx) {
 
         const bg = new UISprite(ctx, { w: w, h: h });
         bg.setTexture(ctx.textures.roundRect(w, h, skin.bg));
-        bg.setPosition((view.width - w) / 2, view.height * 0.12);
         // 不设 interactive/blockInput: 不挡触摸
         label.setPosition(padX, padY);
         bg.addChild(label);
+
+        // 顶部居中(高度 12% 处), 横竖屏切换自动重算
+        const relayout = function () {
+            bg.setPosition((view.width - w) / 2, view.height * 0.12);
+        };
+        relayout();
+        ctx.root.on('resize', relayout);
+        bg._toastRelayout = relayout;
 
         ctx.root.addChild(bg);
         current = bg;
@@ -43,10 +56,7 @@ function createToast(ctx) {
             .to({ alpha: 1 }, 160, 'quadOut')
             .delay(duration)
             .to({ alpha: 0 }, 240, 'quadOut')
-            .call(function () {
-                if (current === bg) current = null;
-                bg.destroy();
-            });
+            .call(function () { dismiss(bg); });
         return bg;
     }
 

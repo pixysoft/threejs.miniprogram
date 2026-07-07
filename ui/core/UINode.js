@@ -60,7 +60,11 @@ Object.defineProperty(UINode.prototype, 'rotation', {
 
 Object.defineProperty(UINode.prototype, 'visible', {
     get: function () { return this._visible; },
-    set: function (v) { this._visible = v; this.obj3d.visible = v; }
+    set: function (v) {
+        this._visible = v;
+        this.obj3d.visible = v;
+        if (this.ctx.root) this.ctx.root.invalidate();
+    }
 });
 
 Object.defineProperty(UINode.prototype, 'alpha', {
@@ -91,6 +95,7 @@ UINode.prototype._syncTransform = function () {
     this.obj3d.position.set(ox, -oy, 0);
     this.obj3d.scale.set(this._scale, this._scale, 1);
     this.obj3d.rotation.z = -this._rotation;
+    if (this.ctx.root) this.ctx.root.invalidate();
 };
 
 /* ---------------- alpha 级联 ---------------- */
@@ -107,6 +112,7 @@ UINode.prototype._propagateAlpha = function () {
     for (let i = 0; i < this.children.length; i++) {
         this.children[i]._propagateAlpha();
     }
+    if (this.ctx.root) this.ctx.root.invalidate();
 };
 
 /** 子类覆盖: 把 worldAlpha 写入材质 */

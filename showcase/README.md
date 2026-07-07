@@ -23,6 +23,8 @@ python3 -m http.server 8080
 - **2D UI 层（three-ui）**：
   - 基础件：Button 三态 / ProgressBar / Toggle / Slider / TabBar / Theme 一行换皮 / Toast / tween
   - 容器：ScrollView 惯性回弹 + 子控件 cancelPress 拦截、List 虚拟化（1000 条数据 9 个实例）、PageView 磁吸翻页、Modal 防穿透
+  - P1 体验件：RichLabel 分段富文本、Atlas 图集帧三态皮肤（缺帧自动回退程序化）、EditBox（悬浮 DOM input 模拟 wx.showKeyboard，接口同形）、List 滚动指示条
+  - P2 性能：UIBatcher 合批 / CharAtlas 字符图集 / RT 缓存三开关实时对比（工具栏实测 draw call 与 RT 重绘计数，支持 `?batch=1&cache=1&anim=0` 预置）
   - 横竖屏适配：fitWidth / fitHeight 切换，Widget 锚点自动重排，一套 UI 双方向
 - **3D + UI 混合**：OVERLAY 双 pass 渲染、UICoordinateTracker 血条跟随 3D 单位、HUD、伤害飘字
 
@@ -62,5 +64,6 @@ rm -rf showcase/libs/ui && cp -R ui showcase/libs/ui
 ## 相关文档
 
 - UI 架构设计：`docs/fable5/three-ui-design.md`
-- 开发总结与计划：`docs/fable5/three-ui-devlog.md`
-- UI 冒烟测试：`node test/ui-smoke.js`（131 项）
+- P1/P2 增量设计：`docs/fable5/three-ui-p1p2-design.md`
+- 开发总结与计划：`docs/fable5/three-ui-devlog.md`、`docs/fable5/three-ui-p1p2-devlog.md`
+- UI 冒烟测试：`node test/ui-smoke.js`（212 项）

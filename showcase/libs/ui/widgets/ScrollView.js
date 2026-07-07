@@ -2,7 +2,8 @@
  * ScrollView — 滚动容器（算法移植 pixi-miniprogram, 手感参数源自 cocos/egret;
  * 拦截协议对标 cocos ViewGroup capture）
  *
- * opts: { w, h, direction='y'|'x', onScroll(pos), snapInterval, onSnap(index) }
+ * opts: { w, h, direction='y'|'x', onScroll(pos), snapInterval, onSnap(index),
+ *         scrollBar(true 时显示滚动指示条) }
  * API: content(内容节点) setContentSize(len) scrollTo(pos) scrollPos()
  *      snapTo(index, animated) refresh() update(dt)
  * 惯性/回弹/磁吸由 root ticker 自动驱动; 子控件按下后滚动超阈值 → cancelPress。
@@ -61,6 +62,12 @@ function ScrollView(ctx, opts) {
     this._snapIndex = -1;
 
     this._bindEvents();
+
+    this.scrollBar = null;
+    if (opts.scrollBar) {
+        const ScrollBar = require('./ScrollBar');
+        this.scrollBar = new ScrollBar(ctx, this);
+    }
 
     const self = this;
     this._ticker = ctx.root.addTicker(function (dt) { self.update(dt); });
@@ -231,6 +238,7 @@ ScrollView.prototype._syncMask = function () {
 
 ScrollView.prototype.update = function (dt) {
     this._syncMask();
+    if (this.scrollBar) this.scrollBar.sync(dt);
 
     if (this._inertia) {
         let friction = Math.pow(CFG.frictionBase, dt);
