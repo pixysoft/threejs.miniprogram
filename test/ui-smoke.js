@@ -77,7 +77,38 @@ function makeUI(opts) {
         designWidth: 750,
         safeArea: opts.safeArea || null,
         createCanvas2D: createCanvas2DStub,
+        keyboard: opts.keyboard || null,
+        batch: !!opts.batch,
+        cache: !!opts.cache,
     });
+}
+
+/* ---- 键盘 stub(与 wx.showKeyboard 系接口同形) ---- */
+
+function createKeyboardStub() {
+    const listeners = { input: [], confirm: [], complete: [] };
+    function fire(type, res) {
+        listeners[type].slice().forEach(function (fn) { fn(res); });
+    }
+    function off(type, fn) {
+        const i = listeners[type].indexOf(fn);
+        if (i !== -1) listeners[type].splice(i, 1);
+    }
+    return {
+        shown: [], hideCount: 0,
+        show(o) { this.shown.push(o); },
+        hide() { this.hideCount++; },
+        onInput(fn) { listeners.input.push(fn); },
+        offInput(fn) { off('input', fn); },
+        onConfirm(fn) { listeners.confirm.push(fn); },
+        offConfirm(fn) { off('confirm', fn); },
+        onComplete(fn) { listeners.complete.push(fn); },
+        offComplete(fn) { off('complete', fn); },
+        emitInput(v) { fire('input', { value: v }); },
+        emitConfirm(v) { fire('confirm', { value: v }); },
+        emitComplete(v) { fire('complete', { value: v }); },
+        listenerCount() { return listeners.input.length + listeners.confirm.length + listeners.complete.length; },
+    };
 }
 
 function touch(type, x, y) {
@@ -659,6 +690,361 @@ target.updateMatrixWorld(true);
 ui4.update(16);
 assert('回到视野恢复显示', hp.visible === true);
 trk.dispose();
+
+/* ==================== N1: RichLabel + Modal/Toast 横竖屏 ==================== */
+
+console.log('\n---- N1: RichLabel ----');
+
+const ui6 = makeUI();
+// stub measureText: 宽 = 字数 * size * 0.5
+const rich = ui6.richLabel([
+    { text: 'AAAA', size: 20 },                       // w=40
+    { text: 'BBBB', size: 20, color: 0xFFD24D },      // w=40, 累计 80
+    { text: 'CCCC', size: 20, bold: true },           // 80+40>100 → 换行
+], { wrapWidth: 100, lineGap: 6 });
+ui6.root.addChild(rich);
+
+assert('三段生成三个子 Label', rich.children.length === 3);
+assert('段2 接排在段1 之后 (x=40)', near(rich.children[1].x, 40));
+assert('段3 贪心换行到第二行', near(rich.children[2].x, 0) && rich.children[2].y > 0);
+assert('总宽 = 最宽行 80', near(rich.width, 80));
+assert('总高 = 两行 + gap (26+6+26)', near(rich.height, 20 * 1.3 + 6 + 20 * 1.3));
+assert('段2 颜色覆盖生效', rich.children[1]._color === 0xFFD24D);
+
+rich.setSegments([{ text: 'DD', size: 20 }]);
+assert('setSegments 重建 (1 段)', rich.children.length === 1 && near(rich.width, 20));
+rich.setSegments([]);
+assert('空段数组尺寸归零', rich.width === 0 && rich.height === 0);
+
+console.log('\n---- N1: Modal/Toast 横竖屏重排 ----');
+
+const md6 = ui6.modal({ w: 560, h: 400, title: '设置' });
+md6.show();
+assert('竖屏面板居中', near(md6.panel.x, (750 - 560) / 2) && near(md6.panel.y, (1334 - 400) / 2));
+assert('title 是 panel 子节点(相对定位)', md6.titleLabel.parent === md6.panel && near(md6.titleLabel.x, 280));
+
+const toast6 = ui6.toast.show('已保存', 99999);
+const toastY0 = toast6.y;
+assert('竖屏 toast 顶部 12%', near(toastY0, 1334 * 0.12));
+
+ui6.onResize(667, 375);   // 转横屏: view = 1334 x 750
+assert('横屏遮罩铺满新视口', near(md6.mask.width, 1334) && near(md6.mask.height, 750));
+assert('横屏面板重新居中', near(md6.panel.x, (1334 - 560) / 2) && near(md6.panel.y, (750 - 400) / 2));
+assert('title 相对面板位置不变', near(md6.titleLabel.x, 280) && near(md6.titleLabel.y, 24));
+assert('横屏 toast 重算位置', near(toast6.y, 750 * 0.12) && near(toast6.x, (1334 - toast6.width) / 2));
+ui6.onResize(375, 667);
+
+/* ==================== N2: Atlas 图集与帧皮肤 ==================== */
+
+console.log('\n---- N2: Atlas 帧索引 ----');
+
+const ui7 = makeUI();
+// 伪纹理: 256x128 图集
+const atlasTex = new THREE.Texture({ width: 256, height: 128 });
+ui7.atlas.addAtlas('ui', {
+    frames: {
+        'btn_up':   { frame: { x: 0, y: 0, w: 64, h: 32 }, slice: [8, 8, 8, 8] },
+        'btn_down': { frame: { x: 64, y: 0, w: 64, h: 32 } },
+        'icon':     { frame: { x: 128, y: 32, w: 32, h: 32 } },
+    },
+    meta: { size: { w: 256, h: 128 } },
+}, atlasTex);
+
+assert('帧索引建立', ui7.atlas.has('btn_up') && ui7.atlas.has('icon'));
+assert('未注册帧不可用', ui7.atlas.has('nope') === false);
+const fr = ui7.atlas.frame('icon');
+assert('帧数据完整', fr.x === 128 && fr.y === 32 && fr.w === 32 && fr.texW === 256);
+assert('slice 元数据', ui7.atlas.frame('btn_up').slice[0] === 8 && ui7.atlas.frame('btn_down').slice === null);
+
+console.log('\n---- N2: UISprite.setFrame UV ----');
+
+const spr = ui7.sprite({ w: 100, h: 100 });
+spr.setFrame(fr);
+const sprUV = spr.mesh.geometry.attributes.uv.array;
+// icon: u ∈ [0.5, 0.625], v ∈ [1-64/128, 1-32/128] = [0.5, 0.75]
+let uMin = 1, uMax = 0, vMin = 1, vMax = 0;
+for (let i = 0; i < 4; i++) {
+    uMin = Math.min(uMin, sprUV[i * 2]); uMax = Math.max(uMax, sprUV[i * 2]);
+    vMin = Math.min(vMin, sprUV[i * 2 + 1]); vMax = Math.max(vMax, sprUV[i * 2 + 1]);
+}
+assert('setFrame U 范围 [0.5, 0.625]', near(uMin, 0.5) && near(uMax, 0.625));
+assert('setFrame V 范围 [0.5, 0.75]', near(vMin, 0.5) && near(vMax, 0.75));
+assert('setFrame 换纹理且不动共享几何', spr.material.map === atlasTex
+    && spr.mesh.geometry !== ui7.sprite({ w: 1, h: 1 }).mesh.geometry);
+
+console.log('\n---- N2: NineSlice 帧模式 ----');
+
+const nsFrame = ui7.nineSlice({ frame: ui7.atlas.frame('btn_up'), w: 200, h: 80 });
+assert('insets 取帧 slice 元数据', nsFrame._insets.left === 8 && nsFrame._insets.bottom === 8);
+const nsfUV = nsFrame.geometry.attributes.uv.array;
+// btn_up 帧 u ∈ [0, 0.25]; 第二列 u = (0+8)/256 = 0.03125
+assert('帧内九宫格 UV (u1=8/256)', near(nsfUV[1 * 2], 8 / 256));
+assert('帧右缘 UV (u3=64/256)', near(nsfUV[3 * 2], 0.25));
+
+console.log('\n---- N2: makeBg 回退链与 Button 帧皮肤 ----');
+
+const skinMod = require('../ui/render/skin.js');
+const bgFrame = skinMod.makeBg(ui7.ctx, { frame: 'btn_up' }, 200, 80);
+assert('有帧有 slice → NineSlice', !!bgFrame._insets);
+const bgStretch = skinMod.makeBg(ui7.ctx, { frame: 'btn_down' }, 200, 80);
+assert('有帧无 slice → UISprite 拉伸', !bgStretch._insets && bgStretch.material.map === atlasTex);
+const bgProc = skinMod.makeBg(ui7.ctx, { frame: 'missing', color: 0xFF0000, radius: 8 }, 200, 80);
+assert('帧缺失 → 程序化回退', !!bgProc.material.map && bgProc.material.map !== atlasTex);
+
+const frameBtn = ui7.button('图集按钮', {
+    w: 200, h: 80,
+    skin: { bg: { frame: 'btn_up' }, bgDown: { frame: 'btn_down' } },
+});
+ui7.root.addChild(frameBtn);
+assert('Button up 态用九宫格帧皮肤', !!frameBtn.bg._insets);
+frameBtn.setPosition(0, 0);
+// tap: ui(100,40) → px(50,20)
+ui7.dispatchTouch(touch('touchstart', 50, 20));
+assert('Button down 态切独立帧(无缩放回退)', frameBtn.bg.material.map === atlasTex && near(frameBtn.bg.scale, 1) && !frameBtn.bg._insets);
+ui7.dispatchTouch(touch('touchend', 50, 20));
+assert('抬起回 up 帧', !!frameBtn.bg._insets);
+
+const procBtn = ui7.button('程序化按钮', { w: 200, h: 80 });
+ui7.root.addChild(procBtn);
+assert('无帧配置仍程序化渲染(回退不破坏现状)', !!procBtn.bg.material.map);
+
+/* ==================== N3: EditBox + ScrollBar ==================== */
+
+console.log('\n---- N3: EditBox 键盘协议 ----');
+
+const kb = createKeyboardStub();
+const ui8 = makeUI({ keyboard: kb });
+
+let ebChanged = [], ebConfirmed = null, ebBlurred = 0;
+const eb = ui8.editBox({
+    w: 400, h: 72, placeholder: '请输入昵称', maxLength: 10, confirmType: 'go',
+    onChange: function (t) { ebChanged.push(t); },
+    onConfirm: function (t) { ebConfirmed = t; },
+    onBlur: function () { ebBlurred++; },
+});
+ui8.root.addChild(eb);
+
+assert('初始 placeholder 显示、文本隐藏', eb.placeholderLabel.visible === true && eb.textLabel.visible === false);
+
+eb.focus();
+assert('focus 调起键盘且参数正确', kb.shown.length === 1
+    && kb.shown[0].defaultValue === '' && kb.shown[0].maxLength === 10 && kb.shown[0].confirmType === 'go');
+assert('进入 editing 态', eb.editing === true);
+
+kb.emitInput('abc');
+assert('onInput 驱动文本 + onChange', eb.getText() === 'abc' && ebChanged.length === 1 && ebChanged[0] === 'abc');
+assert('placeholder 隐藏', eb.placeholderLabel.visible === false && eb.textLabel.visible === true);
+
+kb.emitInput('abcdefghijKLMN');
+assert('maxLength 截断到 10', eb.getText() === 'abcdefghij');
+
+kb.emitConfirm('abcdefghij');
+kb.emitComplete();
+assert('confirm + complete: onConfirm/onBlur 且退出 editing', ebConfirmed === 'abcdefghij' && ebBlurred === 1 && eb.editing === false);
+assert('complete 后注销键盘回调', kb.listenerCount() === 0);
+
+console.log('\n---- N3: EditBox 单实例互斥 ----');
+
+const eb2 = ui8.editBox({ w: 400, h: 72 });
+ui8.root.addChild(eb2);
+eb.focus();
+eb2.focus();
+assert('新实例 focus 时旧实例被 blur', eb.editing === false && eb2.editing === true);
+assert('旧实例 blur 调了 hide', kb.hideCount >= 1);
+eb2.blur();
+assert('blur 幂等退出', eb2.editing === false && kb.listenerCount() === 0);
+
+const ebPwd = ui8.editBox({ w: 400, h: 72, password: true, text: 'secret' });
+assert('密码模式打点显示', ebPwd.textLabel.text === '\u2022\u2022\u2022\u2022\u2022\u2022');
+
+const uiNoKb = makeUI();
+const ebRo = uiNoKb.editBox({ w: 400, h: 72 });
+ebRo.focus();
+assert('未注入 keyboard 退化为只读(不进 editing)', ebRo.editing === false);
+
+console.log('\n---- N3: ScrollBar ----');
+
+const sv8 = ui8.scrollView({ w: 300, h: 400, scrollBar: true });
+ui8.root.addChild(sv8);
+sv8.setContentSize(800);
+ui8.update(16);
+
+assert('条长 = view²/content (400²/800=200)', near(sv8.scrollBar.bar.height, 200));
+assert('条贴右缘 (300-6-2)', near(sv8.scrollBar.bar.x, 292));
+assert('顶部时条在顶', near(sv8.scrollBar.bar.y, 0));
+
+sv8.scrollTo(200);   // maxScroll=400 → t=0.5 → offset = 0.5*(400-200)=100
+ui8.update(16);
+assert('滚动 50% 条移到中段', near(sv8.scrollBar.bar.y, 100));
+assert('滚动中条可见', sv8.scrollBar.bar.alpha > 0.3);
+
+for (let i = 0; i < 90; i++) ui8.update(16);   // 静止 ~1.44s
+assert('静止 1s 后淡出', sv8.scrollBar.bar.alpha < 0.01);
+
+sv8.setContentSize(300);   // 内容不足一屏
+ui8.update(16);
+assert('内容不足一屏不显示', sv8.scrollBar.bar.visible === false);
+
+const svh = ui8.scrollView({ w: 400, h: 100, direction: 'x', scrollBar: true });
+ui8.root.addChild(svh);
+svh.setContentSize(800);
+ui8.update(16);
+assert('水平条贴底缘', near(svh.scrollBar.bar.y, 100 - 6 - 2) && near(svh.scrollBar.bar.width, 200));
+
+/* ==================== N4: UIBatcher 合批 ==================== */
+
+console.log('\n---- N4: UIBatcher ----');
+
+const ui9 = makeUI({ batch: true });
+const batcher = ui9.root.batcher;
+assert('batch: true 创建 batcher', !!batcher);
+
+// 三个纯色 sprite(不同色): 共用白纹理 + 顶点色 → 1 段
+const s1 = ui9.sprite({ w: 100, h: 50, color: 0xFF0000 });
+s1.setPosition(0, 0);
+const s2 = ui9.sprite({ w: 100, h: 50, color: 0x00FF00 });
+s2.setPosition(0, 60);
+const s3 = ui9.sprite({ w: 100, h: 50, color: 0x0000FF });
+s3.setPosition(0, 120);
+ui9.root.addChild(s1); ui9.root.addChild(s2); ui9.root.addChild(s3);
+
+ui9.update(16);
+assert('3 纯色 sprite 合成 1 段', batcher.segmentCount === 1);
+assert('原 mesh 隐藏', s1.mesh.visible === false && s3.mesh.visible === false);
+const bmesh = batcher._pool[0].mesh;
+assert('批 mesh 可见且 drawRange = 3 quad', bmesh.visible === true && bmesh.geometry.drawRange.count === 18);
+
+// 顶点数学: s2 世界矩形 (0,60)-(100,110) → THREE y 取负
+const bpos = bmesh.geometry.attributes.position.array;
+assert('s2 quad 顶点写入正确', near(bpos[12], 0) && near(bpos[13], -60) && near(bpos[21], 100) && near(bpos[22], -110));
+// 顶点色: s1 红色
+const bcol = bmesh.geometry.attributes.color.array;
+assert('s1 顶点色 = 红', near(bcol[0], 1) && near(bcol[1], 0) && near(bcol[2], 0));
+
+// 纹理 sprite 插入中间 → 打断成 3 段
+const texA = ui9.textures.roundRect(50, 50, { color: 0xFFFFFF, radius: 8 });
+const st = ui9.sprite({ w: 50, h: 50 });
+st.setTexture(texA);
+st.setPosition(200, 60);
+ui9.root.addChild(st);
+// 树序: s1,s2,s3(白) → st(texA); st 在尾部 → 2 段
+ui9.update(16);
+assert('异纹理追加 → 2 段', batcher.segmentCount === 2);
+
+// Label 打断连续段
+const lb = ui9.label('打断', { size: 20 });
+ui9.root.addChild(lb);
+const s4 = ui9.sprite({ w: 40, h: 40, color: 0xFFFFFF });
+ui9.root.addChild(s4);
+ui9.update(16);
+assert('Label 打断后新起段(3 段)', batcher.segmentCount === 3);
+assert('Label 不进批(mesh 可见)', lb.mesh.visible === true);
+
+// rotation 退批
+s4.rotation = 0.5;
+ui9.update(16);
+assert('rotation 节点退批走原 mesh', s4.mesh.visible === true && batcher.segmentCount === 2);
+s4.rotation = 0;
+ui9.update(16);
+assert('rotation 归零重新进批', s4.mesh.visible === false && batcher.segmentCount === 3);
+
+// 隐藏节点不进批
+s2.visible = false;
+ui9.update(16);
+assert('隐藏节点跳过(仍 3 段)', batcher.segmentCount === 3);
+s2.visible = true;
+
+// 关闭 batch 的 ui 行为不变
+const uiNoBatch = makeUI();
+const sn = uiNoBatch.sprite({ w: 10, h: 10, color: 0xFF0000 });
+uiNoBatch.root.addChild(sn);
+uiNoBatch.update(16);
+assert('未开 batch 原 mesh 直渲', sn.mesh.visible === true && !uiNoBatch.root.batcher);
+
+/* ==================== N5: CharAtlas + RT 缓存 ==================== */
+
+console.log('\n---- N5: CharAtlas ----');
+
+const ui10 = makeUI();
+ui10.charAtlas.bake('0123456789', { size: 32, color: 0xFFFFFF, bold: true });
+
+const score = ui10.label('0', { atlas: true, size: 32, color: 0xFFFFFF, bold: true });
+ui10.root.addChild(score);
+assert('atlas 模式激活', score._atlasMode === true);
+
+// stub measureText: 每字宽 32*2*0.5+2 = 34px(2x) → ui 17
+const fillsBefore = score.canvas.getContext('2d').calls.filter(function (c) { return c[0] === 'fillText'; }).length;
+score.setText('12500');
+const fillsAfter = score.canvas.getContext('2d').calls.filter(function (c) { return c[0] === 'fillText'; }).length;
+assert('atlas setText 不触碰自身 canvas', fillsAfter === fillsBefore);
+assert('宽度 = Σ字宽 (5×17)', near(score.width, 5 * 17));
+assert('drawRange = 5 quad', score.mesh.geometry.drawRange.count === 30);
+assert('共享 CharAtlas 纹理', score.material.map !== score.texture);
+
+const set1 = ui10.charAtlas.lookup(32, 0xFFFFFF, true, '123');
+const score2 = ui10.label('99', { atlas: true, size: 32, color: 0xFFFFFF, bold: true });
+assert('同 style 复用同一纹理', score2.material.map === set1.texture && score.material.map === set1.texture);
+
+score.setText('12:00');   // ':' 未烘焙
+assert('缺字回退 canvas 绘字', score._atlasMode === false && score.material.map === score.texture);
+score.setText('4567');
+assert('字符齐全恢复 atlas 模式', score._atlasMode === true);
+
+const plain = ui10.label('12500', { size: 32, color: 0xFFFFFF, bold: true });
+assert('未开 atlas 的 Label 不受影响', plain._atlasMode === false);
+
+console.log('\n---- N5: cache 模式跳 pass ----');
+
+function createRendererStub() {
+    return {
+        autoClear: true, autoClearColor: true,
+        _target: null, passes: [],
+        setRenderTarget(t) { this._target = t; },
+        getRenderTarget() { return this._target; },
+        getDrawingBufferSize(v) { v.x = 750; v.y = 1334; return v; },
+        getClearColor() { return new THREE.Color(0); },
+        getClearAlpha() { return 1; },
+        setClearColor() {},
+        clear() {},
+        clearDepth() {},
+        render() { this.passes.push(this._target ? 'rt' : 'screen'); },
+    };
+}
+
+const uiC = makeUI({ cache: true });
+const rdr = createRendererStub();
+const cbox = uiC.sprite({ w: 100, h: 100, color: 0xFF0000 });
+uiC.root.addChild(cbox);
+
+uiC.root.render(rdr, 16);
+assert('首帧: 重绘 RT + 合成', rdr.passes.join(',') === 'rt,screen');
+
+rdr.passes.length = 0;
+uiC.root.render(rdr, 16);
+uiC.root.render(rdr, 16);
+assert('静止两帧只合成不重绘', rdr.passes.join(',') === 'screen,screen');
+
+cbox.x = 50;   // 动一下 → 置脏
+rdr.passes.length = 0;
+uiC.root.render(rdr, 16);
+assert('transform 变化触发重绘 RT', rdr.passes.join(',') === 'rt,screen');
+
+cbox.setColor(0x00FF00);
+rdr.passes.length = 0;
+uiC.root.render(rdr, 16);
+assert('纹理级变化触发重绘 RT', rdr.passes.join(',') === 'rt,screen');
+
+const rtBefore = uiC.root._rt;
+uiC.onResize(667, 375);
+rdr.passes.length = 0;
+uiC.root.render(rdr, 16);
+assert('resize 后 RT 重建并重绘', uiC.root._rt !== rtBefore && rdr.passes.join(',') === 'rt,screen');
+
+const uiNoCache = makeUI();
+const rdr2 = createRendererStub();
+uiNoCache.root.render(rdr2, 16);
+uiNoCache.root.render(rdr2, 16);
+assert('未开 cache 每帧直渲', rdr2.passes.join(',') === 'screen,screen');
 
 /* ==================== 收尾 ==================== */
 

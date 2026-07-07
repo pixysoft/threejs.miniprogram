@@ -3,7 +3,8 @@
  *
  * 单 mesh 实现: 4x4 顶点网格(9 个 quad), resize 时只改 position, UV 固定。
  * opts: { texture, textureW, textureH, left, right, top, bottom, w, h }
- * insets 单位为贴图像素。
+ *       或 { frame(Atlas.frame() 返回值), left..bottom?, w, h } — UV 取帧子矩形,
+ *       insets 缺省取帧 slice 元数据 [l,t,r,b]。insets 单位为贴图像素。
  */
 
 'use strict';
@@ -15,14 +16,20 @@ function NineSlice(ctx, opts) {
     opts = opts || {};
 
     const THREE = ctx.THREE;
+    const frame = opts.frame || null;
+    const slice = (frame && frame.slice) || null;
     this._insets = {
-        left: opts.left || 0,
-        right: opts.right || 0,
-        top: opts.top || 0,
-        bottom: opts.bottom || 0,
+        left: opts.left !== undefined ? opts.left : (slice ? slice[0] : 0),
+        top: opts.top !== undefined ? opts.top : (slice ? slice[1] : 0),
+        right: opts.right !== undefined ? opts.right : (slice ? slice[2] : 0),
+        bottom: opts.bottom !== undefined ? opts.bottom : (slice ? slice[3] : 0),
     };
-    this._texW = opts.textureW || (opts.texture && opts.texture.image && opts.texture.image.width) || 1;
-    this._texH = opts.textureH || (opts.texture && opts.texture.image && opts.texture.image.height) || 1;
+    // 帧模式: 内容矩形 = 帧子矩形; 整图模式: 内容矩形 = 全纹理
+    this._texW = frame ? frame.w
+        : (opts.textureW || (opts.texture && opts.texture.image && opts.texture.image.width) || 1);
+    this._texH = frame ? frame.h
+        : (opts.textureH || (opts.texture && opts.texture.image && opts.texture.image.height) || 1);
+    const texture = frame ? frame.texture : (opts.texture || null);
 
     // 4x4 顶点网格
     const geo = new THREE.BufferGeometry();
@@ -43,10 +50,16 @@ function NineSlice(ctx, opts) {
     geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
     this.geometry = geo;
 
-    // UV 固定(v 翻转: 贴图 v=1 在顶部)
+    // UV 固定(v 翻转: 贴图 v=1 在顶部); 帧模式换算到帧子矩形
     const iw = this._insets;
-    const us = [0, iw.left / this._texW, 1 - iw.right / this._texW, 1];
-    const vs = [1, 1 - iw.top / this._texH, iw.bottom / this._texH, 0];
+    let us = [0, iw.left / this._texW, 1 - iw.right / this._texW, 1];
+    let vs = [1, 1 - iw.top / this._texH, iw.bottom / this._texH, 0];
+    if (frame) {
+        const fu0 = frame.x / frame.texW, fu1 = (frame.x + frame.w) / frame.texW;
+        const fvTop = 1 - frame.y / frame.texH, fvBottom = 1 - (frame.y + frame.h) / frame.texH;
+        us = us.map(function (u) { return fu0 + u * (fu1 - fu0); });
+        vs = vs.map(function (v) { return fvBottom + v * (fvTop - fvBottom); });
+    }
     for (let row = 0; row < 4; row++) {
         for (let col = 0; col < 4; col++) {
             const i = (row * 4 + col) * 2;
@@ -56,7 +69,7 @@ function NineSlice(ctx, opts) {
     }
 
     this.material = new THREE.MeshBasicMaterial({
-        map: opts.texture || null,
+        map: texture,
         transparent: true,
         depthTest: false,
         depthWrite: false,
@@ -100,6 +113,7 @@ NineSlice.prototype._applyAlpha = function (worldAlpha) {
 NineSlice.prototype.setTexture = function (texture) {
     this.material.map = texture;
     this.material.needsUpdate = true;
+    if (this.ctx.root) this.ctx.root.invalidate();
 };
 
 NineSlice.prototype._disposeSelf = function () {

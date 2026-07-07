@@ -49,6 +49,15 @@ const DEFAULTS = {
         bg: { color: 0x000000, alpha: 0.75, radius: 0.5 },
         label: { color: 0xFFFFFF, size: 26 },
     },
+    EditBox: {
+        bg: { color: 0x2A2E38, radius: 8 },
+        bgFocus: { color: 0x2A2E38, radius: 8, borderColor: 0x3B72B0, borderWidth: 2 },
+        text: { color: 0xFFFFFF, size: 26 },
+        placeholder: { color: 0x8A8F99, size: 26 },
+    },
+    ScrollBar: {
+        bar: { color: 0xFFFFFF, alpha: 0.35, radius: 3 },
+    },
 };
 
 function isPlainObject(v) {

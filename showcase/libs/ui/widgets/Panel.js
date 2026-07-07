@@ -6,15 +6,16 @@
 'use strict';
 
 const UINode = require('../core/UINode');
-const UISprite = require('../render/UISprite');
+const skinMod = require('../render/skin');
 
 function Panel(ctx, opts) {
     UINode.call(this, ctx);
     opts = opts || {};
 
     this._skinOverride = opts.skin || null;
-    this.bg = new UISprite(ctx, { w: opts.w || 100, h: opts.h || 100 });
-    this.addChild(this.bg);
+    this.bgHolder = new UINode(ctx);
+    this.addChild(this.bgHolder);
+    this.bg = null;
     this.setSize(opts.w || 100, opts.h || 100);
 
     const self = this;
@@ -28,14 +29,16 @@ Panel.prototype.constructor = Panel;
 Panel.prototype._applySkin = function () {
     const skin = this.ctx.theme.resolve('Panel', this._skinOverride);
     const bg = skin.bg || {};
-    this.bg.setTexture(this.ctx.textures.roundRect(this.width, this.height, bg));
+    if (this.bg) this.bg.destroy();
+    this.bg = skinMod.makeBg(this.ctx, bg, this.width, this.height);
     this.bg.alpha = bg.alpha === undefined ? 1 : bg.alpha;
+    this.bgHolder.addChild(this.bg);
+    this._bgCfg = bg;
 };
 
 Panel.prototype._onResize = function () {
     if (this.bg) {
-        this.bg.setSize(this.width, this.height);
-        this._applySkin();
+        skinMod.resizeBg(this.ctx, this.bg, this._bgCfg, this.width, this.height);
     }
 };
 

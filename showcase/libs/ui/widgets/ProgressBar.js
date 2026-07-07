@@ -7,8 +7,8 @@
 'use strict';
 
 const UINode = require('../core/UINode');
-const UISprite = require('../render/UISprite');
 const UILabel = require('../render/UILabel');
+const skinMod = require('../render/skin');
 
 function ProgressBar(ctx, opts) {
     UINode.call(this, ctx);
@@ -19,11 +19,10 @@ function ProgressBar(ctx, opts) {
     this._skinOverride = opts.skin || null;
     this._ratio = 0;
 
-    this.bg = new UISprite(ctx, { w: w, h: h });
-    this.addChild(this.bg);
-
-    this.fill = new UISprite(ctx, { w: 0, h: h });
-    this.addChild(this.fill);
+    this.bgHolder = new UINode(ctx);
+    this.addChild(this.bgHolder);
+    this.bg = null;
+    this.fill = null;
 
     this.labelNode = null;
     if (opts.text !== undefined) {
@@ -44,16 +43,16 @@ ProgressBar.prototype.constructor = ProgressBar;
 
 ProgressBar.prototype._applySkin = function () {
     const skin = this.ctx.theme.resolve('ProgressBar', this._skinOverride);
-    this.bg.setTexture(this.ctx.textures.roundRect(this.width, this.height, skin.bg || {}));
 
-    const fillW = Math.max(1, Math.round(this.width * this._ratio));
-    if (this._ratio > 0) {
-        this.fill.visible = true;
-        this.fill.setSize(fillW, this.height);
-        this.fill.setTexture(this.ctx.textures.roundRect(fillW, this.height, skin.fill || {}));
-    } else {
-        this.fill.visible = false;
-    }
+    if (this.bg) this.bg.destroy();
+    this.bg = skinMod.makeBg(this.ctx, skin.bg || {}, this.width, this.height);
+    this.bgHolder.addChild(this.bg);
+
+    if (this.fill) this.fill.destroy();
+    this._fillCfg = skin.fill || {};
+    this.fill = skinMod.makeBg(this.ctx, this._fillCfg, Math.max(1, Math.round(this.width * this._ratio)), this.height);
+    this.bgHolder.addChild(this.fill);
+    this._syncFill();
 
     if (this.labelNode) {
         const lbl = skin.label || {};
@@ -64,9 +63,21 @@ ProgressBar.prototype._applySkin = function () {
     }
 };
 
+/** ratio 变化只改 fill 尺寸, 不重建节点 */
+ProgressBar.prototype._syncFill = function () {
+    if (!this.fill) return;
+    if (this._ratio > 0) {
+        this.fill.visible = true;
+        const fillW = Math.max(1, Math.round(this.width * this._ratio));
+        skinMod.resizeBg(this.ctx, this.fill, this._fillCfg, fillW, this.height);
+    } else {
+        this.fill.visible = false;
+    }
+};
+
 ProgressBar.prototype.setRatio = function (ratio) {
     this._ratio = Math.max(0, Math.min(1, ratio));
-    this._applySkin();
+    this._syncFill();
 };
 
 ProgressBar.prototype.getRatio = function () { return this._ratio; };

@@ -3,13 +3,14 @@
  *
  * opts: { text, w=200, h=80, onTap, skin, enabled=true }
  * API: setLabel(text) / setEnabled(bool) / isEnabled() / on('tap')
+ * 皮肤走 skin.makeBg 回退链(图集帧 → 程序化); 三态背景预构建, 状态切换只改可见性(pixi 方案)。
  */
 
 'use strict';
 
 const UINode = require('../core/UINode');
-const UISprite = require('../render/UISprite');
 const UILabel = require('../render/UILabel');
+const skinMod = require('../render/skin');
 
 function Button(ctx, opts) {
     UINode.call(this, ctx);
@@ -19,9 +20,10 @@ function Button(ctx, opts) {
     const h = opts.h || 80;
     this._skinOverride = opts.skin || null;
     this._state = 'up';
+    this._bgs = {};
 
-    this.bg = new UISprite(ctx, { w: w, h: h });
-    this.addChild(this.bg);
+    this.bgHolder = new UINode(ctx);
+    this.addChild(this.bgHolder);
 
     this.labelNode = new UILabel(ctx, { text: opts.text || '' });
     this.addChild(this.labelNode);
@@ -34,38 +36,61 @@ function Button(ctx, opts) {
         onTap: opts.onTap,
         onStateChange: function (state) {
             self._state = state;
-            self._applySkin();
+            self._applyState();
         },
     });
 
-    this._unsubscribe = ctx.theme.subscribe(function () { self._applySkin(); });
-    this._applySkin();
+    this._unsubscribe = ctx.theme.subscribe(function () { self._rebuildSkin(); });
+    this._rebuildSkin();
 }
 
 Button.prototype = Object.create(UINode.prototype);
 Button.prototype.constructor = Button;
 
-Button.prototype._applySkin = function () {
-    const skin = this.ctx.theme.resolve('Button', this._skinOverride);
-    let bg = skin.bg || {};
-    let zoom = 1;
+/** 主题变化/resize: 重建三态背景 */
+Button.prototype._rebuildSkin = function () {
+    const ctx = this.ctx;
+    const skin = ctx.theme.resolve('Button', this._skinOverride);
+    this._skin = skin;
 
-    if (this._state === 'disabled' && skin.bgDisabled) {
-        bg = skin.bgDisabled;
-    } else if (this._state === 'down') {
-        if (skin.bgDown) bg = skin.bgDown;
-        else zoom = skin.zoomDown || 0.95;   // 无 down 皮肤 → 缩放回退
+    const olds = this.bgHolder.children.slice();
+    for (let i = 0; i < olds.length; i++) olds[i].destroy();
+
+    this._bgs = { up: skinMod.makeBg(ctx, skin.bg || {}, this.width, this.height) };
+    if (skin.bgDown) this._bgs.down = skinMod.makeBg(ctx, skin.bgDown, this.width, this.height);
+    if (skin.bgDisabled) this._bgs.disabled = skinMod.makeBg(ctx, skin.bgDisabled, this.width, this.height);
+
+    for (const key in this._bgs) {
+        const bg = this._bgs[key];
+        bg.anchorX = 0.5;
+        bg.anchorY = 0.5;
+        bg.setPosition(this.width / 2, this.height / 2);
+        bg.visible = false;
+        this.bgHolder.addChild(bg);
     }
-
-    this.bg.setTexture(this.ctx.textures.roundRect(this.width, this.height, bg));
-    this.bg.scale = zoom;
-    this.bg.anchorX = 0.5;
-    this.bg.anchorY = 0.5;
-    this.bg.setPosition(this.width / 2, this.height / 2);
 
     const lbl = skin.label || {};
     if (lbl.color !== undefined) this.labelNode.setColor(lbl.color);
     this._centerLabel();
+    this._applyState();
+};
+
+/** 状态切换: 只改可见性/缩放, 不重建 */
+Button.prototype._applyState = function () {
+    const skin = this._skin || {};
+    let key = 'up';
+    let zoom = 1;
+
+    if (this._state === 'disabled' && this._bgs.disabled) {
+        key = 'disabled';
+    } else if (this._state === 'down') {
+        if (this._bgs.down) key = 'down';
+        else zoom = skin.zoomDown || 0.95;   // 无 down 皮肤 → 缩放回退
+    }
+
+    for (const k in this._bgs) this._bgs[k].visible = (k === key);
+    this.bg = this._bgs[key];
+    this.bg.scale = zoom;
 };
 
 Button.prototype._centerLabel = function () {
@@ -80,7 +105,7 @@ Button.prototype.setLabel = function (text) {
 };
 
 Button.prototype._onResize = function () {
-    if (this.bg) this._applySkin();
+    if (this.bgHolder) this._rebuildSkin();
 };
 
 Button.prototype._disposeSelf = function () {
