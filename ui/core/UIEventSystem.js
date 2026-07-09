@@ -2,7 +2,10 @@
  * UIEventSystem — 触摸接入 / 命中 / 冒泡 / 按压协议
  * （对标 cocos PointerEventDispatcher + pixi Widget.makePressable）
  *
- * dispatchTouch(e): 接收 wx 触摸事件(或 adapter TouchEvent), 返回是否被 UI 消费。
+ * dispatchTouch(e): 接收 wx 触摸事件(或 adapter TouchEvent), 逐 changedTouches
+ * 触点分发(多触点: 每个 identifier 独立捕获), 返回是否有触点被 UI 消费。
+ * dispatchTouchPoint(type, id, px, py): 单触点分发(3D+UI 混合游戏按触点分流用),
+ * 返回该触点是否被 UI 消费; owns(id) 查询触点是否已被 UI 捕获。
  * 命中: 逆 DFS(后渲染者优先), visible && (interactive || blockInput) && hitTest。
  * 冒泡: 命中节点向上 emit 'pointerdown/move/up' + 'tap', stopPropagation 截断。
  */
@@ -11,8 +14,8 @@
 
 function UIEventSystem(ctx) {
     this.ctx = ctx;
-    this._activeTarget = null;    // pointerdown 命中的节点(后续 move/up 跟随)
-    this._downPoint = null;
+    this._active = {};            // identifier → 捕获节点(pointerdown 命中, 后续 move/up 跟随)
+    this._activeTarget = null;    // 兼容字段: 最近一次 touchstart 命中的节点
 }
 
 /* ---------------- 命中 ---------------- */
@@ -30,6 +33,11 @@ UIEventSystem.prototype.hitTest = function (ux, uy) {
     })(this.ctx.root);
 };
 
+/** 触点是否已被 UI 捕获(touchstart 命中后, move/end 归 UI) */
+UIEventSystem.prototype.owns = function (id) {
+    return this._active[id] !== undefined;
+};
+
 /* ---------------- 分发 ---------------- */
 
 UIEventSystem.prototype._bubble = function (node, type, ev) {
@@ -44,9 +52,7 @@ UIEventSystem.prototype._bubble = function (node, type, ev) {
     }
 };
 
-function firstTouch(e) {
-    const t = (e.changedTouches && e.changedTouches[0]) || (e.touches && e.touches[0]);
-    if (!t) return null;
+function touchXY(t) {
     // adapter TouchEvent 的 Touch 有 clientX/clientY; 原始 wx 触点是 x/y
     return {
         x: t.clientX !== undefined ? t.clientX : t.x,
@@ -55,42 +61,59 @@ function firstTouch(e) {
 }
 
 /**
- * @param e wx 触摸事件或 adapter TouchEvent(type: touchstart/touchmove/touchend/touchcancel)
- * @returns {boolean} UI 是否消费了该事件
+ * 单触点分发(CSS px 坐标)。
+ * @param type touchstart/touchmove/touchend/touchcancel
+ * @param id   触点 identifier
+ * @returns {boolean} 该触点是否被 UI 消费
  */
-UIEventSystem.prototype.dispatchTouch = function (e) {
-    const pt = firstTouch(e);
-    if (!pt) return false;
-
+UIEventSystem.prototype.dispatchTouchPoint = function (type, id, px, py, raw) {
     const view = this.ctx.view;
-    const ui = view.toUI(pt.x, pt.y);
-    const ev = { x: ui.x, y: ui.y, raw: e };
+    const ui = view.toUI(px, py);
+    const ev = { x: ui.x, y: ui.y, id: id, raw: raw || null };
 
-    const type = e.type;
     if (type === 'touchstart') {
         const hit = this.hitTest(ui.x, ui.y);
-        this._activeTarget = hit;
-        this._downPoint = ui;
-        if (hit) this._bubble(hit, 'pointerdown', ev);
+        if (hit) {
+            this._active[id] = hit;
+            this._activeTarget = hit;
+            this._bubble(hit, 'pointerdown', ev);
+        }
         return !!hit;
     }
 
     if (type === 'touchmove') {
-        if (!this._activeTarget) return false;
-        this._bubble(this._activeTarget, 'pointermove', ev);
+        const target = this._active[id];
+        if (!target) return false;
+        this._bubble(target, 'pointermove', ev);
         return true;
     }
 
     if (type === 'touchend' || type === 'touchcancel') {
-        const target = this._activeTarget;
-        this._activeTarget = null;
-        this._downPoint = null;
-        if (!target) return false;
+        const target = this._active[id];
+        if (target === undefined) return false;
+        delete this._active[id];
+        if (this._activeTarget === target) this._activeTarget = null;
         this._bubble(target, type === 'touchend' ? 'pointerup' : 'pointercancel', ev);
         return true;
     }
 
     return false;
+};
+
+/**
+ * @param e wx 触摸事件或 adapter TouchEvent(type: touchstart/touchmove/touchend/touchcancel)
+ * @returns {boolean} 是否有触点被 UI 消费
+ */
+UIEventSystem.prototype.dispatchTouch = function (e) {
+    const list = (e.changedTouches && e.changedTouches.length ? e.changedTouches : e.touches) || [];
+    let consumed = false;
+    for (let i = 0; i < list.length; i++) {
+        const t = list[i];
+        const pt = touchXY(t);
+        const id = t.identifier !== undefined ? t.identifier : 0;
+        if (this.dispatchTouchPoint(e.type, id, pt.x, pt.y, e)) consumed = true;
+    }
+    return consumed;
 };
 
 /* ---------------- 按压协议 ---------------- */
@@ -106,6 +129,7 @@ UIEventSystem.prototype.makePressable = function (node, opts) {
     let enabled = opts.enabled === undefined ? true : !!opts.enabled;
     let downPos = null;
     let isDown = false;
+    let downId = null;     // 多触点: 只跟踪首个按下的触点
 
     node.interactive = true;
 
@@ -117,6 +141,7 @@ UIEventSystem.prototype.makePressable = function (node, opts) {
         if (isDown) {
             isDown = false;
             downPos = null;
+            downId = null;
             setState(enabled ? 'up' : 'disabled');
         }
     };
@@ -125,35 +150,41 @@ UIEventSystem.prototype.makePressable = function (node, opts) {
         enabled = !!v;
         isDown = false;
         downPos = null;
+        downId = null;
         setState(enabled ? 'up' : 'disabled');
     };
 
     node.isEnabled = function () { return enabled; };
 
     node.on('pointerdown', function (ev) {
-        if (!enabled || ev.target !== node) return;
+        if (!enabled || ev.target !== node || isDown) return;
         downPos = { x: ev.x, y: ev.y };
+        downId = ev.id;
         isDown = true;
         setState('down');
     });
 
     node.on('pointermove', function (ev) {
-        if (!isDown || !downPos) return;
+        if (!isDown || !downPos || ev.id !== downId) return;
         const dx = ev.x - downPos.x;
         const dy = ev.y - downPos.y;
         if (dx * dx + dy * dy > moveCancelPx * moveCancelPx) node.cancelPress();
     });
 
-    node.on('pointerup', function () {
-        if (!isDown) return;
+    node.on('pointerup', function (ev) {
+        if (!isDown || (ev && ev.id !== downId)) return;
         isDown = false;
         downPos = null;
+        downId = null;
         setState('up');
         if (opts.onTap) opts.onTap();
         node.emit('tap');
     });
 
-    node.on('pointercancel', function () { node.cancelPress(); });
+    node.on('pointercancel', function (ev) {
+        if (ev && ev.id !== downId) return;
+        node.cancelPress();
+    });
 
     return node;
 };
