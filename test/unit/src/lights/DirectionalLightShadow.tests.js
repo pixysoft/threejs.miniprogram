@@ -56,6 +56,7 @@ export default QUnit.module( 'Lights', () => {
 
 			shadow.bias = 10;
 			shadow.radius = 5;
+			shadow.normalBias = 0.05;
 			shadow.mapSize.set( 1024, 1024 );
 			light.shadow = shadow;
 

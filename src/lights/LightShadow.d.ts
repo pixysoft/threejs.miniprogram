@@ -12,6 +12,8 @@ export class LightShadow {
 	camera: Camera;
 	bias: number;
 	radius: number;
+	/** 沿世界法线偏移阴影采样点，默认 0 */
+	normalBias: number;
 	mapSize: Vector2;
 	map: RenderTarget;
 	mapPass: RenderTarget;

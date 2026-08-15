@@ -58,6 +58,8 @@ import * as Geometries from '../geometries/Geometries.js';
 import * as Curves from '../extras/curves/Curves.js';
 
 /**
+ * 从 JSON 还原 Object3D 树（含灯光阴影 bias / normalBias / radius / mapSize）。
+ *
  * @author mrdoob / http://mrdoob.com/
  */
 
@@ -687,6 +689,13 @@ ObjectLoader.prototype = Object.assign( Object.create( Loader.prototype ), {
 
 	},
 
+	/**
+	 * 解析单个对象节点（含 shadow.bias / normalBias / radius / mapSize / camera）。
+	 * @param {Object} data JSON 节点
+	 * @param {Object} geometries uuid -> Geometry
+	 * @param {Object} materials uuid -> Material
+	 * @returns {Object3D}
+	 */
 	parseObject: function ( data, geometries, materials ) {
 
 		var object;
@@ -937,6 +946,7 @@ ObjectLoader.prototype = Object.assign( Object.create( Loader.prototype ), {
 
 			if ( data.shadow.bias !== undefined ) object.shadow.bias = data.shadow.bias;
 			if ( data.shadow.radius !== undefined ) object.shadow.radius = data.shadow.radius;
+			if ( data.shadow.normalBias !== undefined ) object.shadow.normalBias = data.shadow.normalBias;
 			if ( data.shadow.mapSize !== undefined ) object.shadow.mapSize.fromArray( data.shadow.mapSize );
 			if ( data.shadow.camera !== undefined ) object.shadow.camera = this.parseObject( data.shadow.camera );
 

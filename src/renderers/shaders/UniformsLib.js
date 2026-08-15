@@ -3,7 +3,7 @@ import { Vector2 } from '../../math/Vector2.js';
 import { Matrix3 } from '../../math/Matrix3.js';
 
 /**
- * Uniforms library for shared webgl shaders
+ * 内置材质共享 uniform 模板。阴影 vertex 侧 *ShadowNormalBias 与 *ShadowMatrix 并列平铺。
  */
 
 var UniformsLib = {
@@ -123,6 +123,7 @@ var UniformsLib = {
 
 		directionalShadowMap: { value: [] },
 		directionalShadowMatrix: { value: [] },
+		directionalShadowNormalBias: { value: [] },
 
 		spotLights: { value: [], properties: {
 			color: {},
@@ -141,6 +142,7 @@ var UniformsLib = {
 
 		spotShadowMap: { value: [] },
 		spotShadowMatrix: { value: [] },
+		spotShadowNormalBias: { value: [] },
 
 		pointLights: { value: [], properties: {
 			color: {},
@@ -158,6 +160,7 @@ var UniformsLib = {
 
 		pointShadowMap: { value: [] },
 		pointShadowMatrix: { value: [] },
+		pointShadowNormalBias: { value: [] },
 
 		hemisphereLights: { value: [], properties: {
 			direction: {},
