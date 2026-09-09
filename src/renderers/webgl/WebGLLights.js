@@ -1,4 +1,7 @@
 /**
+ * 把场景灯光整理成 shader uniform 状态。
+ * 阴影矩阵与 normalBias 共用下标：投射阴影的灯排前，数组截到阴影数量。
+ *
  * @author mrdoob / http://mrdoob.com/
  */
 
@@ -7,12 +10,20 @@ import { Matrix4 } from '../../math/Matrix4.js';
 import { Vector2 } from '../../math/Vector2.js';
 import { Vector3 } from '../../math/Vector3.js';
 
+/**
+ * 按灯光 id 缓存 fragment 侧 light struct 对象，避免每帧分配。
+ * @returns {{ get: function(Light): Object }} get(light) 返回该灯的 uniforms 引用
+ */
 function UniformsCache() {
 
 	var lights = {};
 
 	return {
 
+		/**
+		 * @param {Light} light 场景中的灯
+		 * @returns {Object} 该灯可写入 shader 的 struct 字段
+		 */
 		get: function ( light ) {
 
 			if ( lights[ light.id ] !== undefined ) {
@@ -102,12 +113,21 @@ function UniformsCache() {
 
 var nextVersion = 0;
 
+/**
+ * 投射阴影的灯排在前面，保证 *Shadow* 数组下标 0..N-1 与 shader 循环一致。
+ * @param {Light} lightA
+ * @param {Light} lightB
+ * @returns {number} 排序权重差
+ */
 function shadowCastingLightsFirst( lightA, lightB ) {
 
 	return ( lightB.castShadow ? 1 : 0 ) - ( lightA.castShadow ? 1 : 0 );
 
 }
 
+/**
+ * @returns {{ setup: function, state: Object }} setup 填充 state；state 供 WebGLRenderer 绑 uniform
+ */
 function WebGLLights() {
 
 	var cache = new UniformsCache();
@@ -133,13 +153,16 @@ function WebGLLights() {
 		directional: [],
 		directionalShadowMap: [],
 		directionalShadowMatrix: [],
+		directionalShadowNormalBias: [],
 		spot: [],
 		spotShadowMap: [],
 		spotShadowMatrix: [],
+		spotShadowNormalBias: [],
 		rectArea: [],
 		point: [],
 		pointShadowMap: [],
 		pointShadowMatrix: [],
+		pointShadowNormalBias: [],
 		hemi: [],
 
 		numDirectionalShadows: - 1,
@@ -154,6 +177,12 @@ function WebGLLights() {
 	var matrix4 = new Matrix4();
 	var matrix42 = new Matrix4();
 
+	/**
+	 * 按当前灯光列表写入 state（颜色、方向、阴影图、矩阵、normalBias）。
+	 * @param {Light[]} lights 本帧灯光
+	 * @param {Light[]} shadows 投射阴影的灯（本仓库未使用，保持签名）
+	 * @param {Camera} camera 当前渲染相机（取 viewMatrix）
+	 */
 	function setup( lights, shadows, camera ) {
 
 		var r = 0, g = 0, b = 0;
@@ -220,6 +249,7 @@ function WebGLLights() {
 
 					state.directionalShadowMap[ directionalLength ] = shadowMap;
 					state.directionalShadowMatrix[ directionalLength ] = light.shadow.matrix;
+					state.directionalShadowNormalBias[ directionalLength ] = shadow.normalBias;
 
 					numDirectionalShadows ++;
 
@@ -260,6 +290,7 @@ function WebGLLights() {
 
 					state.spotShadowMap[ spotLength ] = shadowMap;
 					state.spotShadowMatrix[ spotLength ] = light.shadow.matrix;
+					state.spotShadowNormalBias[ spotLength ] = shadow.normalBias;
 
 					numSpotShadows ++;
 
@@ -326,6 +357,7 @@ function WebGLLights() {
 
 					state.pointShadowMap[ pointLength ] = shadowMap;
 					state.pointShadowMatrix[ pointLength ] = light.shadow.matrix;
+					state.pointShadowNormalBias[ pointLength ] = shadow.normalBias;
 
 					numPointShadows ++;
 
@@ -379,8 +411,11 @@ function WebGLLights() {
 			state.pointShadowMap.length = numPointShadows;
 			state.spotShadowMap.length = numSpotShadows;
 			state.directionalShadowMatrix.length = numDirectionalShadows;
+			state.directionalShadowNormalBias.length = numDirectionalShadows;
 			state.pointShadowMatrix.length = numPointShadows;
+			state.pointShadowNormalBias.length = numPointShadows;
 			state.spotShadowMatrix.length = numSpotShadows;
+			state.spotShadowNormalBias.length = numSpotShadows;
 
 			hash.directionalLength = directionalLength;
 			hash.pointLength = pointLength;

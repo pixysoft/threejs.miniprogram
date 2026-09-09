@@ -1046,6 +1046,70 @@ uiNoCache.root.render(rdr2, 16);
 uiNoCache.root.render(rdr2, 16);
 assert('未开 cache 每帧直渲', rdr2.passes.join(',') === 'screen,screen');
 
+/* ==================== M5 多触点与 blockInput ==================== */
+
+console.log('\n---- M5: 多触点 dispatchTouchPoint / owns / blockInput ----');
+
+const uiM = makeUI();
+
+const btnL = uiM.sprite({ w: 100, h: 100, color: 0xFF0000 });
+btnL.setPosition(0, 0);
+uiM.root.addChild(btnL);
+let tapL = 0;
+uiM.makePressable(btnL, { onTap: function () { tapL++; } });
+
+const btnR = uiM.sprite({ w: 100, h: 100, color: 0x00FF00 });
+btnR.setPosition(400, 0);
+uiM.root.addChild(btnR);
+let tapR = 0;
+uiM.makePressable(btnR, { onTap: function () { tapR++; } });
+
+// 双指分别按住两个按钮, 交错抬起, 各自独立触发
+assert('触点1 按下按钮L 被消费', uiM.events.dispatchTouchPoint('touchstart', 1, 25, 25) === true);
+assert('触点2 按下按钮R 被消费', uiM.events.dispatchTouchPoint('touchstart', 2, 225, 25) === true);
+assert('owns(1) 捕获中', uiM.events.owns(1) === true);
+assert('owns(2) 捕获中', uiM.events.owns(2) === true);
+assert('owns(99) 未捕获', uiM.events.owns(99) === false);
+uiM.events.dispatchTouchPoint('touchend', 2, 225, 25);
+assert('触点2 抬起只触发按钮R', tapR === 1 && tapL === 0);
+assert('触点2 释放后 owns(2)=false, owns(1) 仍在', uiM.events.owns(2) === false && uiM.events.owns(1) === true);
+uiM.events.dispatchTouchPoint('touchend', 1, 25, 25);
+assert('触点1 抬起触发按钮L', tapL === 1);
+
+// 空白处触点不消费; 已捕获触点的 move/end 归 UI
+assert('空白处 touchstart 不消费', uiM.events.dispatchTouchPoint('touchstart', 3, 175, 300) === false);
+assert('未捕获触点 touchmove 不消费', uiM.events.dispatchTouchPoint('touchmove', 3, 175, 310) === false);
+assert('未捕获触点 touchend 不消费', uiM.events.dispatchTouchPoint('touchend', 3, 175, 300) === false);
+
+// 按钮按住时另一指划过按钮不干扰按压(id 隔离)
+uiM.events.dispatchTouchPoint('touchstart', 4, 25, 25);
+uiM.events.dispatchTouchPoint('touchstart', 5, 225, 25);
+uiM.events.dispatchTouchPoint('touchmove', 5, 235, 45);   // 触点5 大位移只取消按钮R
+uiM.events.dispatchTouchPoint('touchend', 5, 235, 45);
+uiM.events.dispatchTouchPoint('touchend', 4, 25, 25);
+assert('他指位移不取消本指按压', tapL === 2);
+
+// blockInput: 无 interactive 也消费触摸(Cocos BlockInputEvents 口径)
+const blocker = uiM.sprite({ w: 200, h: 100, color: 0x000000 });
+blocker.setPosition(0, 300);
+blocker.blockInput = true;
+uiM.root.addChild(blocker);
+assert('blockInput 节点 hitTest 命中', uiM.events.hitTest(50, 350) === blocker);
+assert('blockInput 节点消费 touchstart', uiM.events.dispatchTouchPoint('touchstart', 6, 25, 175) === true);
+uiM.events.dispatchTouchPoint('touchend', 6, 25, 175);
+
+// dispatchTouch(整事件) 多 changedTouches 逐触点分发
+const multiEv = {
+    type: 'touchstart',
+    changedTouches: [
+        { identifier: 7, x: 25, y: 25 },      // 按钮L
+        { identifier: 8, x: 175, y: 250 },    // 空白
+    ],
+};
+assert('dispatchTouch 多触点: 任一命中即消费', uiM.dispatchTouch(multiEv) === true);
+assert('多触点分发后只捕获命中触点', uiM.events.owns(7) === true && uiM.events.owns(8) === false);
+uiM.events.dispatchTouchPoint('touchend', 7, 25, 25);
+
 /* ==================== 收尾 ==================== */
 
 console.log('');

@@ -45,6 +45,8 @@ import { WebVRManager } from './webvr/WebVRManager.js';
 import { WebXRManager } from './webvr/WebXRManager.js';
 
 /**
+ * WebGL 渲染器。灯光 uniform 里 *ShadowNormalBias 与 *ShadowMatrix 一起绑定。
+ *
  * @author supereggbert / http://www.paulbrunt.co.uk/
  * @author mrdoob / http://mrdoob.com/
  * @author alteredq / http://alteredqualia.com/
@@ -1530,6 +1532,12 @@ function WebGLRenderer( parameters ) {
 
 	}
 
+	/**
+	 * 编译/复用 program，并把当前灯光 state（含三种灯的 shadow matrix / normalBias）绑到材质 uniforms。
+	 * @param {Material} material
+	 * @param {Fog} fog
+	 * @param {Object3D} object
+	 */
 	function initMaterial( material, fog, object ) {
 
 		var materialProperties = properties.get( material );
@@ -1685,10 +1693,13 @@ function WebGLRenderer( parameters ) {
 
 			uniforms.directionalShadowMap.value = lights.state.directionalShadowMap;
 			uniforms.directionalShadowMatrix.value = lights.state.directionalShadowMatrix;
+			uniforms.directionalShadowNormalBias.value = lights.state.directionalShadowNormalBias;
 			uniforms.spotShadowMap.value = lights.state.spotShadowMap;
 			uniforms.spotShadowMatrix.value = lights.state.spotShadowMatrix;
+			uniforms.spotShadowNormalBias.value = lights.state.spotShadowNormalBias;
 			uniforms.pointShadowMap.value = lights.state.pointShadowMap;
 			uniforms.pointShadowMatrix.value = lights.state.pointShadowMatrix;
+			uniforms.pointShadowNormalBias.value = lights.state.pointShadowNormalBias;
 			// TODO (abelnation): add area lights shadow info to uniforms
 
 		}

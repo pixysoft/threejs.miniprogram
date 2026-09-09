@@ -74,6 +74,7 @@ export let UniformsLib: {
 		};
 		directionalShadowMap: IUniform;
 		directionalShadowMatrix: IUniform;
+		directionalShadowNormalBias: IUniform;
 		spotLights: {
 			value: any[];
 			properties: {
@@ -92,6 +93,7 @@ export let UniformsLib: {
 		};
 		spotShadowMap: IUniform;
 		spotShadowMatrix: IUniform;
+		spotShadowNormalBias: IUniform;
 		pointLights: {
 			value: any[];
 			properties: {
@@ -107,6 +109,7 @@ export let UniformsLib: {
 		};
 		pointShadowMap: IUniform;
 		pointShadowMatrix: IUniform;
+		pointShadowNormalBias: IUniform;
 		hemisphereLights: {
 			value: any[];
 			properties: {
